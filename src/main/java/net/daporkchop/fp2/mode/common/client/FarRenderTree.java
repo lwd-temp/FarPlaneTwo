@@ -344,6 +344,23 @@ public class FarRenderTree<POS extends IFarPos, T extends IFarTile> extends Abst
         return PUnsafe.getLong(node + this.children + childIndex * 8L);
     }
 
+    protected long findChild(POS pos) {
+        int level = DEPTH;
+        long node;
+
+        long child = this.root;
+        do {
+            if (child == 0L || level < pos.level()) {
+                return 0L;
+            }
+
+            node = child;
+            child = this.findChildStep(level--, child, pos);
+        } while (child != node);
+
+        return child;
+    }
+
     /**
      * Selects all tiles that are applicable for the given view ranges and frustum and adds them to the render index.
      *
@@ -356,7 +373,7 @@ public class FarRenderTree<POS extends IFarPos, T extends IFarTile> extends Abst
     }
 
     protected boolean select0(int level, long node, Volume[] ranges, IFrustum frustum, DirectLongStack index) {
-        if (level == 0 && this.checkFlagsOR(node, FLAG_EMPTY)) { //TODO: remove "level == 0 && "
+        if (/*level == 0 && */this.checkFlagsOR(node, FLAG_EMPTY)) { //TODO: remove "level == 0 && " //TODO: track empty flag recursively up the tree to avoid the need to do it like that
             //this tile is baked and empty, so we can be sure that none of its children will be non-empty and there's no reason to recurse any further
             return true;
         } else if (level < this.maxLevel //don't do range checking for the top level, as it will cause a bunch of tiles to be loaded but never rendered
@@ -429,10 +446,8 @@ public class FarRenderTree<POS extends IFarPos, T extends IFarTile> extends Abst
             return false;
         }
 
-        if (this.checkFlagsOR(node, FLAG_DATA)) {
-            //actually append node to render list
-            index.push(node + this.tile);
-        }
+        //actually append node to render list
+        index.push(node + this.tile);
         return true;
     }
 

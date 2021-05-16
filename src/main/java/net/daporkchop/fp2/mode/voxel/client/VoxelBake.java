@@ -30,6 +30,7 @@ import net.daporkchop.fp2.client.gl.object.IGLBuffer;
 import net.daporkchop.fp2.client.gl.object.VertexArrayObject;
 import net.daporkchop.fp2.client.gl.type.Int2_10_10_10_Rev;
 import net.daporkchop.fp2.compat.vanilla.FastRegistry;
+import net.daporkchop.fp2.mode.common.client.BakeOutput;
 import net.daporkchop.fp2.mode.voxel.VoxelData;
 import net.daporkchop.fp2.mode.voxel.VoxelPos;
 import net.daporkchop.fp2.mode.voxel.VoxelTile;
@@ -39,12 +40,10 @@ import net.daporkchop.fp2.util.SingleBiomeBlockAccess;
 import net.daporkchop.fp2.util.datastructure.PointOctree3I;
 import net.daporkchop.lib.common.ref.Ref;
 import net.daporkchop.lib.common.ref.ThreadRef;
-import net.minecraft.block.Block;
 import net.minecraft.block.state.IBlockState;
 import net.minecraft.init.Biomes;
 import net.minecraft.init.Blocks;
 import net.minecraft.util.math.BlockPos;
-import net.minecraft.world.biome.Biome;
 
 import java.util.Arrays;
 
@@ -102,7 +101,7 @@ public class VoxelBake {
         return ((ddx * T_VERTS + ddy) * T_VERTS + ddz) * 3 + edge;
     }
 
-    public void bakeForShaderDraw(@NonNull VoxelPos dstPos, @NonNull VoxelTile[] srcs, @NonNull ByteBuf verts, @NonNull ByteBuf[] indices) {
+    public void bakeForShaderDraw(@NonNull VoxelPos dstPos, @NonNull VoxelTile[] srcs, @NonNull BakeOutput output, @NonNull ByteBuf verts, @NonNull ByteBuf[] indices) {
         if (srcs[0] == null) {
             return;
         }
@@ -120,13 +119,28 @@ public class VoxelBake {
             PointOctree3I highOctree = buildHighPointOctree(srcs, dstPos);
 
             //step 2: write vertices for all source tiles, and assign indices
-            writeVertices(srcs, blockX, blockY, blockZ, level, lowOctree, highOctree, map, verts);
+            writeVertices(srcs, blockX, blockY, blockZ, level, lowOctree, highOctree, map, verts, output);
 
             //step 3: write indices to actually connect the vertices and build the mesh
             writeIndices(srcs[0], map, indices, lowOctree);
         } finally {
             MAP_RECYCLER.get().release(map);
         }
+
+        /*VoxelTile highParent = srcs[8 + (-BAKE_HIGH_RADIUS_MIN * BAKE_HIGH_CNT + -BAKE_HIGH_RADIUS_MIN) * BAKE_HIGH_CNT + -BAKE_HIGH_RADIUS_MIN];
+
+        boolean anyHighParentIsNull = false;
+        for (int tx = BAKE_HIGH_RADIUS_MIN; tx <= 0; tx++) {
+            for (int ty = BAKE_HIGH_RADIUS_MIN; ty <= 0; ty++) {
+                for (int tz = BAKE_HIGH_RADIUS_MIN; tz <= 0; tz++) {
+                    anyHighParentIsNull |= srcs[bakeHighIndex(tx, ty, tz)] == null;
+                }
+            }
+        }
+
+        if (anyHighParentIsNull) {
+            output.forceRenderParent = true;
+        }*/
     }
 
     protected PointOctree3I buildLowPointOctree(VoxelTile[] srcs) {
@@ -207,7 +221,7 @@ public class VoxelBake {
         return new PointOctree3I(highPoints.toIntArray());
     }
 
-    protected void writeVertices(VoxelTile[] srcs, int blockX, int blockY, int blockZ, int level, PointOctree3I lowOctree, PointOctree3I highOctree, int[] map, ByteBuf verts) {
+    protected void writeVertices(VoxelTile[] srcs, int blockX, int blockY, int blockZ, int level, PointOctree3I lowOctree, PointOctree3I highOctree, int[] map, ByteBuf verts, BakeOutput output) {
         final BlockPos.MutableBlockPos pos = new BlockPos.MutableBlockPos();
         final SingleBiomeBlockAccess biomeAccess = new SingleBiomeBlockAccess();
         final VoxelData data = new VoxelData();
@@ -229,14 +243,14 @@ public class VoxelBake {
                             continue;
                         }
 
-                        indexCounter = writeVertex(blockX, blockY, blockZ, level, dx + (((i >> 2) & 1) << T_SHIFT), dy + (((i >> 1) & 1) << T_SHIFT), dz + ((i & 1) << T_SHIFT), data, verts, pos, biomeAccess, map, indexCounter, highOctree);
+                        indexCounter = writeVertex(blockX, blockY, blockZ, level, dx + (((i >> 2) & 1) << T_SHIFT), dy + (((i >> 1) & 1) << T_SHIFT), dz + ((i & 1) << T_SHIFT), data, verts, pos, biomeAccess, map, indexCounter, highOctree, output, i);
                     }
                 }
             }
         }
     }
 
-    protected int writeVertex(int baseX, int baseY, int baseZ, int level, int x, int y, int z, VoxelData data, ByteBuf vertices, BlockPos.MutableBlockPos pos, SingleBiomeBlockAccess biomeAccess, int[] map, int indexCounter, PointOctree3I octree) {
+    protected int writeVertex(int baseX, int baseY, int baseZ, int level, int x, int y, int z, VoxelData data, ByteBuf vertices, BlockPos.MutableBlockPos pos, SingleBiomeBlockAccess biomeAccess, int[] map, int indexCounter, PointOctree3I octree, BakeOutput output, int i) {
         baseX += (x & T_VOXELS) << level;
         baseY += (y & T_VOXELS) << level;
         baseZ += (z & T_VOXELS) << level;
@@ -256,6 +270,7 @@ public class VoxelBake {
         vertices.writeMediumLE(Constants.convertARGB_ABGR(mc.getBlockColors().colorMultiplier(state, biomeAccess, pos, 0))); //color
 
         int offset = level == 0 ? POS_ONE >> 1 : 0;
+        offset = 0;
 
         int lowX = (x << POS_FRACT_SHIFT) + data.x + offset;
         int lowY = (y << POS_FRACT_SHIFT) + data.y + offset;
@@ -269,6 +284,13 @@ public class VoxelBake {
             highX = Int2_10_10_10_Rev.unpackX(closestHighPoint);
             highY = Int2_10_10_10_Rev.unpackY(closestHighPoint);
             highZ = Int2_10_10_10_Rev.unpackZ(closestHighPoint);
+
+            if (i != 0 //the current vertex isn't in the center low tile
+                && ((lowX >> (POS_FRACT_SHIFT + 1)) != (highX >> (POS_FRACT_SHIFT + 1))
+                    || (lowY >> (POS_FRACT_SHIFT + 1)) != (highY >> (POS_FRACT_SHIFT + 1))
+                    || (lowZ >> (POS_FRACT_SHIFT + 1)) != (highZ >> (POS_FRACT_SHIFT + 1)))) { //the high vertex's voxel doesn't intersect the low voxel
+                output.forceRenderParent = true;
+            }
         }
 
         vertices.writeByte(lowX).writeByte(lowY).writeByte(lowZ); //pos_low
