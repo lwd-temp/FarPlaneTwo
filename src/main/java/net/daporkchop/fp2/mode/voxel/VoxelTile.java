@@ -21,13 +21,15 @@
 package net.daporkchop.fp2.mode.voxel;
 
 import io.netty.buffer.ByteBuf;
+import io.netty.buffer.Unpooled;
 import lombok.Getter;
 import lombok.NonNull;
 import lombok.Setter;
+import net.daporkchop.fp2.client.gl.type.Int2_10_10_10_Rev;
 import net.daporkchop.fp2.mode.api.IFarTile;
+import net.daporkchop.lib.common.system.PlatformInfo;
 import net.daporkchop.lib.unsafe.PUnsafe;
 
-import static net.daporkchop.fp2.mode.voxel.VoxelConstants.*;
 import static net.daporkchop.fp2.util.Constants.*;
 import static net.daporkchop.lib.common.util.PValidation.*;
 
@@ -38,71 +40,48 @@ import static net.daporkchop.lib.common.util.PValidation.*;
  */
 @Getter
 public class VoxelTile implements IFarTile {
-    //layout (in ints):
-    //0: (dx << 24) | (dy << 16) | (dz << 8) | edges
-    //                                       ^ 2 bits are free
+    //vertex layout (in ints):
+    //0: pos
+    //  ^ 2 bits are free
     //1: (biome << 8) | light
     //  ^ 16 bits are free
-    //2: state0
-    //3: state1
-    //4: state2
+    //2: state
 
-    public static final int ENTRY_COUNT = T_VOXELS * T_VOXELS * T_VOXELS;
-    protected static final int INDEX_SIZE = ENTRY_COUNT * 2;
+    protected static final int VERTEX_COUNT = T_VOXELS * T_VOXELS * T_VOXELS;
+    protected static final int INDEX_COUNT = VERTEX_COUNT * 6;
 
-    public static final int ENTRY_DATA_SIZE = 2 + EDGE_COUNT;
-    public static final int ENTRY_DATA_SIZE_BYTES = ENTRY_DATA_SIZE * 4;
+    protected static final int VERTEX_SIZE = 3 * Integer.BYTES;
+    protected static final int INDEX_SIZE = Character.BYTES;
 
-    public static final int ENTRY_FULL_SIZE_BYTES = ENTRY_DATA_SIZE * 4 + 2;
-    public static final int TILE_SIZE = INDEX_SIZE + ENTRY_FULL_SIZE_BYTES * ENTRY_COUNT;
+    protected static final long VERTEX_START = 0L;
+    protected static final long INDEX_START = VERTEX_START + VERTEX_COUNT * VERTEX_SIZE;
 
-    static int index(int x, int y, int z) {
-        checkArg(x >= 0 && x < T_VOXELS && y >= 0 && y < T_VOXELS && z >= 0 && z < T_VOXELS, "coordinates out of bounds (x=%d, y=%d, z=%d)", x, y, z);
-        return (x * T_VOXELS + y) * T_VOXELS + z;
-    }
+    protected static final long TILE_SIZE = INDEX_START + INDEX_COUNT * INDEX_SIZE;
 
-    static void writeData(long base, VoxelData data) {
-        PUnsafe.putInt(base + 0L, (data.x << 24) | (data.y << 16) | (data.z << 8) | data.edges);
+    static void writeVertex(long base, VoxelData data) {
+        PUnsafe.putInt(base + 0L, Int2_10_10_10_Rev.packCoords(data.x, data.y, data.z));
         PUnsafe.putInt(base + 4L, (data.biome << 8) | data.light);
-        PUnsafe.copyMemory(data.states, PUnsafe.ARRAY_INT_BASE_OFFSET, null, base + 8L, 4L * EDGE_COUNT);
+        PUnsafe.putInt(base + 8L, data.state);
     }
 
-    static void readData(long base, VoxelData data) {
+    static void readVertex(long base, VoxelData data) {
         int i0 = PUnsafe.getInt(base + 0L);
         int i1 = PUnsafe.getInt(base + 4L);
+        int i2 = PUnsafe.getInt(base + 8L);
 
-        data.x = i0 >>> 24;
-        data.y = (i0 >> 16) & 0xFF;
-        data.z = (i0 >> 8) & 0xFF;
-        data.edges = i0 & 0x3F;
+        data.x = Int2_10_10_10_Rev.unpackX(i0);
+        data.y = Int2_10_10_10_Rev.unpackY(i0);
+        data.z = Int2_10_10_10_Rev.unpackZ(i0);
 
         data.biome = (i1 >> 8) & 0xFF;
         data.light = i1 & 0xFF;
-
-        PUnsafe.copyMemory(null, base + 8L, data.states, PUnsafe.ARRAY_INT_BASE_OFFSET, 4L * EDGE_COUNT);
-    }
-
-    static void readOnlyPos(long base, VoxelData data) {
-        int i0 = PUnsafe.getInt(base + 0L);
-
-        data.x = i0 >>> 24;
-        data.y = (i0 >> 16) & 0xFF;
-        data.z = (i0 >> 8) & 0xFF;
-    }
-
-    static int readOnlyPosAndReturnEdges(long base, double[] dst, int dstOff) {
-        int i0 = PUnsafe.getInt(base + 0L);
-
-        dst[dstOff + 0] = (i0 >>> 24) / (double) POS_ONE;
-        dst[dstOff + 1] = ((i0 >> 16) & 0xFF) / (double) POS_ONE;
-        dst[dstOff + 2] = ((i0 >> 8) & 0xFF) / (double) POS_ONE;
-
-        return i0 & 0x3F;
+        data.state = i2;
     }
 
     protected final long addr = PUnsafe.allocateMemory(this, TILE_SIZE);
 
-    protected int count = -1; //the number of voxels in the tile that are set
+    protected int vertexCount = -1; //the number of vertices in the tile that are set
+    protected int indexCount = -1; //the number of indices in the tile that are set
 
     @Setter
     protected long extra = 0L;
@@ -112,52 +91,44 @@ public class VoxelTile implements IFarTile {
     }
 
     /**
-     * Gets the voxel at the given index.
+     * Gets the vertex at the given index.
      *
      * @param index  the index of the voxel to get
      * @param data the {@link VoxelData} instance to store the data into
-     * @return the relative offset of the voxel (combined XYZ coords)
      */
-    public int get(int index, VoxelData data) {
-        long base = this.addr + INDEX_SIZE + checkIndex(this.count, index) * ENTRY_FULL_SIZE_BYTES;
-        readData(base + 2L, data);
-        return PUnsafe.getChar(base);
+    public void getVertex(int index, VoxelData data) {
+        readVertex(this.addr + VERTEX_START + (long) checkIndex(this.vertexCount, index) * VERTEX_SIZE, data);
     }
 
-    public int getOnlyPos(int index, VoxelData data) {
-        long base = this.addr + INDEX_SIZE + checkIndex(this.count, index) * ENTRY_FULL_SIZE_BYTES;
-        readOnlyPos(base + 2L, data);
-        return PUnsafe.getChar(base);
+    public int appendVertex(VoxelData data) {
+        int vertexIndex = this.vertexCount++;
+        writeVertex(this.addr + VERTEX_START + (long) vertexIndex * VERTEX_SIZE, data);
+        return vertexIndex;
     }
 
-    public boolean get(int x, int y, int z, VoxelData data) {
-        int index = PUnsafe.getShort(this.addr + index(x, y, z) * 2L);
-        if (index < 0) { //index is unset, don't read sample
-            return false;
-        }
-
-        readData(this.addr + INDEX_SIZE + index * ENTRY_FULL_SIZE_BYTES + 2L, data);
-        return true;
+    public int getIndex(int index) {
+        return PUnsafe.getChar(this.addr + INDEX_START + (long) checkIndex(this.indexCount, index) * INDEX_SIZE);
     }
 
-    public boolean getOnlyPos(int x, int y, int z, VoxelData data) {
-        int index = PUnsafe.getShort(this.addr + index(x, y, z) * 2L);
-        if (index < 0) { //index is unset, don't read sample
-            return false;
-        }
-
-        readOnlyPos(this.addr + INDEX_SIZE + index * ENTRY_FULL_SIZE_BYTES + 2L, data);
-        return true;
+    public VoxelTile appendIndex(int index) {
+        PUnsafe.putChar(this.addr + INDEX_START + (long) this.indexCount++ * INDEX_SIZE, (char) index);
+        return this;
     }
 
-    public VoxelTile set(int x, int y, int z, VoxelData data) {
-        long indexAddr = this.addr + VoxelTile.index(x, y, z) * 2L;
-        int index = PUnsafe.getShort(indexAddr);
-        if (index < 0) { //index is unset, allocate new one
-            PUnsafe.putShort(indexAddr, (short) (index = this.count++));
-        }
+    public VoxelTile appendQuad(int oppositeCorner, int c0, int c1, int provoking) {
+        long addr = this.addr + INDEX_START + (long) this.indexCount * INDEX_SIZE;
+        this.indexCount += 6;
 
-        VoxelTile.writeData(this.addr + VoxelTile.INDEX_SIZE + index * VoxelTile.ENTRY_DATA_SIZE_BYTES, data);
+        //first triangle
+        PUnsafe.putChar(addr + 0L * INDEX_SIZE, (char) oppositeCorner);
+        PUnsafe.putChar(addr + 1L * INDEX_SIZE, (char) c0);
+        PUnsafe.putChar(addr + 2L * INDEX_SIZE, (char) provoking);
+
+        //second triangle
+        PUnsafe.putChar(addr + 3L * INDEX_SIZE, (char) c1);
+        PUnsafe.putChar(addr + 4L * INDEX_SIZE, (char) oppositeCorner);
+        PUnsafe.putChar(addr + 5L * INDEX_SIZE, (char) provoking);
+
         return this;
     }
 
@@ -165,64 +136,64 @@ public class VoxelTile implements IFarTile {
     public void reset() {
         this.extra = 0L;
 
-        if (this.count != 0) {
-            this.count = 0;
-            PUnsafe.setMemory(this.addr, VoxelTile.INDEX_SIZE, (byte) 0xFF); //fill index with -1
-            //data doesn't need to be cleared, it's effectively wiped along with the index
-        }
+        //setting both counts to 0 is enough to effectively delete all data in the tile
+        this.vertexCount = 0;
+        this.indexCount = 0;
     }
 
     @Override
     public void read(@NonNull ByteBuf src) {
         this.reset();
 
-        int count = this.count = src.readIntLE();
-
-        long addr = this.addr + INDEX_SIZE;
-        for (int i = 0; i < count; i++) { //copy data
-            int pos = src.readShortLE();
-            PUnsafe.putShort(this.addr + pos * 2L, (short) i); //put data slot into index
-
-            PUnsafe.putChar(addr, (char) pos); //prefix data with pos
-            addr += 2L;
-            for (int j = 0; j < ENTRY_DATA_SIZE; j++, addr += 4L) {
+        //vertices
+        this.vertexCount = src.readIntLE();
+        if (PlatformInfo.IS_LITTLE_ENDIAN) { //little-endian: we can just copy the data
+            src.readBytes(Unpooled.wrappedBuffer(this.addr + VERTEX_START, this.vertexCount * VERTEX_SIZE, false).writerIndex(0));
+        } else { //read each int individually
+            for (long addr = this.addr + VERTEX_START, end = addr + (long) this.vertexCount * VERTEX_SIZE; addr != end; addr += Integer.BYTES) {
                 PUnsafe.putInt(addr, src.readIntLE());
+            }
+        }
+
+        //indices
+        this.indexCount = src.readIntLE();
+        if (PlatformInfo.IS_LITTLE_ENDIAN) { //little-endian: we can just copy the data
+            src.readBytes(Unpooled.wrappedBuffer(this.addr + INDEX_START, this.indexCount * INDEX_SIZE, false).writerIndex(0));
+        } else { //read each int individually
+            for (long addr = this.addr + INDEX_START, end = addr + (long) this.indexCount * INDEX_SIZE; addr != end; addr += Character.BYTES) {
+                PUnsafe.putChar(addr, (char) src.readUnsignedShortLE());
             }
         }
     }
 
     @Override
     public boolean write(@NonNull ByteBuf dst) {
-        if (this.count == 0) { //tile is empty, nothing needs to be encoded
+        if ((this.vertexCount | this.indexCount) == 0) { //tile is empty, nothing needs to be encoded
             return true;
         }
 
-        int sizeIndex = dst.writerIndex();
-        dst.writeIntLE(-1);
+        dst.ensureWritable(Integer.BYTES + this.vertexCount * VERTEX_SIZE + Integer.BYTES + this.indexCount * INDEX_SIZE);
 
-        int count = 0;
-        for (int i = 0; i < VoxelTile.ENTRY_COUNT; i++)  { //iterate through the index and search for set voxels
-            int index = PUnsafe.getShort(this.addr + i * 2L);
-            if (index >= 0) { //voxel is set
-                dst.writeShortLE(i); //write position
-                long base = this.addr + VoxelTile.INDEX_SIZE + index * VoxelTile.ENTRY_DATA_SIZE_BYTES;
-                for (int j = 0; j < VoxelTile.ENTRY_DATA_SIZE; j++) { //write voxel data
-                    dst.writeIntLE(PUnsafe.getInt(base + j * 4L));
-                }
-                count++;
+        //vertices
+        dst.writeIntLE(this.vertexCount);
+        if (PlatformInfo.IS_LITTLE_ENDIAN) { //little-endian: we can just copy the data
+            dst.writeBytes(Unpooled.wrappedBuffer(this.addr + VERTEX_START, this.vertexCount * VERTEX_SIZE, false));
+        } else { //write each int individually
+            for (long addr = this.addr + VERTEX_START, end = addr + (long) this.vertexCount * VERTEX_SIZE; addr != end; addr += Integer.BYTES) {
+                dst.writeIntLE(PUnsafe.getInt(addr));
             }
         }
 
-        dst.setIntLE(sizeIndex, count);
-        return false;
-    }
-
-    public int getOnlyPosAndReturnEdges(int x, int y, int z, double[] dst, int dstOff)   {
-        int index = PUnsafe.getShort(this.addr + index(x, y, z) * 2L);
-        if (index < 0)  { //index is unset, don't read data
-            return -1;
+        //indices
+        dst.writeIntLE(this.indexCount);
+        if (PlatformInfo.IS_LITTLE_ENDIAN) { //little-endian: we can just copy the data
+            dst.writeBytes(Unpooled.wrappedBuffer(this.addr + INDEX_START, this.indexCount * INDEX_SIZE, false));
+        } else { //write each char individually
+            for (long addr = this.addr + INDEX_START, end = addr + (long) this.indexCount * INDEX_SIZE; addr != end; addr += Character.BYTES) {
+                dst.writeShortLE(PUnsafe.getChar(addr));
+            }
         }
 
-        return readOnlyPosAndReturnEdges(this.addr + INDEX_SIZE + index * ENTRY_FULL_SIZE_BYTES + 2L, dst, dstOff);
+        return false;
     }
 }

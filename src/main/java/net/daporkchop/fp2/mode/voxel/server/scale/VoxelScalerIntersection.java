@@ -118,7 +118,7 @@ public class VoxelScalerIntersection implements IFarScaler<VoxelPos, VoxelTile> 
 
     @Override
     public long scale(@NonNull VoxelTile[] srcTiles, @NonNull VoxelTile dst) {
-        VoxelData data = new VoxelData();
+        /*VoxelData data = new VoxelData();
         QefSolver qef = new QefSolver();
 
         BitSet srcVoxels = new BitSet(SRC_SIZE * SRC_SIZE * SRC_SIZE);
@@ -284,7 +284,9 @@ public class VoxelScalerIntersection implements IFarScaler<VoxelPos, VoxelTile> 
             }
         }
 
-        return 0L;
+        return 0L;*/
+
+        throw new UnsupportedOperationException(); //TODO
     }
 
     @AllArgsConstructor

@@ -20,26 +20,21 @@
 
 package net.daporkchop.fp2.mode.voxel;
 
-import java.util.Arrays;
-
-import static net.daporkchop.fp2.mode.voxel.VoxelConstants.*;
-
 /**
  * Represents a single data sample contained in a voxel tile.
  *
  * @author DaPorkchop_
  */
 public class VoxelData {
-    //vertex position and mesh intersection data
+    //vertex position
     public int x;
     public int y;
     public int z;
-    public int edges;
 
     //block data (for texturing and shading)
-    public final int[] states = new int[EDGE_COUNT];
     public int biome;
     public int light;
+    public int state;
 
     /**
      * Resets this instance.
@@ -50,10 +45,9 @@ public class VoxelData {
         this.x = 0;
         this.y = 0;
         this.z = 0;
-        this.edges = 0;
-        Arrays.fill(this.states, 0);
         this.biome = 0;
         this.light = 0;
+        this.state = 0;
         return this;
     }
 }

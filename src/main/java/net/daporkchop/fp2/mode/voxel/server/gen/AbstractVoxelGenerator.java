@@ -30,19 +30,22 @@ import net.daporkchop.lib.common.ref.Ref;
 import net.daporkchop.lib.common.ref.ThreadRef;
 import net.minecraft.world.WorldServer;
 
+import java.util.Arrays;
+
 import static java.lang.Math.*;
 import static net.daporkchop.fp2.mode.voxel.VoxelConstants.*;
 import static net.daporkchop.fp2.util.BlockType.*;
 import static net.daporkchop.fp2.util.Constants.*;
 import static net.daporkchop.fp2.util.math.MathUtil.*;
 import static net.daporkchop.lib.common.math.PMath.*;
+import static net.daporkchop.lib.common.util.PValidation.*;
 
 /**
  * @author DaPorkchop_
  */
 public abstract class AbstractVoxelGenerator<PARAM> extends AbstractFarGenerator {
     public static final int DMAP_MIN = 0;
-    public static final int DMAP_MAX = T_VOXELS + 1;
+    public static final int DMAP_MAX = T_VERTS + 1;
     public static final int DMAP_SIZE = DMAP_MAX - DMAP_MIN;
 
     protected static final int DI_ADD_000 = densityIndex(DMAP_MIN + 0, DMAP_MIN + 0, DMAP_MIN + 0);
@@ -61,41 +64,64 @@ public abstract class AbstractVoxelGenerator<PARAM> extends AbstractFarGenerator
             DI_ADD_110, DI_ADD_111
     };
 
-    protected static final Ref<double[][]> DMAP_CACHE = ThreadRef.soft(() -> new double[2][cb(DMAP_SIZE)]);
-    protected static final Ref<byte[]> TMAP_CACHE = ThreadRef.soft(() -> new byte[cb(DMAP_SIZE)]);
-
     protected static int densityIndex(int x, int y, int z) {
         return ((x - DMAP_MIN) * DMAP_SIZE + y - DMAP_MIN) * DMAP_SIZE + z - DMAP_MIN;
     }
+
+    protected static int vertexMapIndex(int dx, int dy, int dz, int i, int edge) {
+        int j = CONNECTION_INDICES[i];
+        int ddx = dx + ((j >> 2) & 1);
+        int ddy = dy + ((j >> 1) & 1);
+        int ddz = dz + (j & 1);
+
+        return ((ddx * T_VERTS + ddy) * T_VERTS + ddz) * 3 + edge;
+    }
+
+    protected final Ref<double[][]> densityMapCache = ThreadRef.soft(() -> new double[2][cb(DMAP_SIZE)]);
+    protected final Ref<byte[]> typeMapCache = ThreadRef.soft(() -> new byte[cb(DMAP_SIZE)]);
 
     public AbstractVoxelGenerator(@NonNull WorldServer world) {
         super(world);
     }
 
-    protected void buildMesh(int baseX, int baseY, int baseZ, int level, VoxelTile builder, double[][] densityMap, PARAM param) {
+    protected byte[] populateTypeMapFromDensityMap(@NonNull double[][] densityMap) {
+        byte[] typeMap = this.typeMapCache.get();
+        double[] densityMap0 = densityMap[0];
+        double[] densityMap1 = densityMap[1];
+
+        //range check here to allow JIT to avoid range checking inside the loop
+        checkArg(typeMap.length >= cb(DMAP_SIZE) && densityMap0.length >= cb(DMAP_SIZE) && densityMap1.length >= cb(DMAP_SIZE));
+
+        for (int i = 0; i < cb(DMAP_SIZE); i++) { //set each type flag depending on the value in the corresponding density map layer
+            byte type = 0;
+            if (densityMap0[i] > 0.0d) {
+                type |= BLOCK_TYPE_TRANSPARENT;
+            }
+            if (densityMap1[i] > 0.0d) {
+                type |= BLOCK_TYPE_OPAQUE;
+            }
+            typeMap[i] = type;
+        }
+
+        return typeMap;
+    }
+
+    protected void dualContour(int baseX, int baseY, int baseZ, int level, VoxelTile tile, double[][] densityMap, PARAM param) {
         QefSolver qef = new QefSolver();
         VoxelData data = new VoxelData();
         Vector3d vec = new Vector3d();
 
-        byte[] tMap = TMAP_CACHE.get();
-        for (int di = 0, x = DMAP_MIN; x < DMAP_MAX; x++) {
-            for (int y = DMAP_MIN; y < DMAP_MAX; y++) {
-                for (int z = DMAP_MIN; z < DMAP_MAX; z++, di++) {
-                    byte type = 0;
-                    if (densityMap[0][di] > 0.0d) {
-                        type |= BLOCK_TYPE_TRANSPARENT;
-                    }
-                    if (densityMap[1][di] > 0.0d) {
-                        type |= BLOCK_TYPE_OPAQUE;
-                    }
-                    tMap[di] = type;
-                }
-            }
-        }
+        //use bit flags to identify voxel types rather than reading from the density map each time to keep innermost loop head tight and cache-friendly
+        byte[] tMap = this.populateTypeMapFromDensityMap(densityMap);
 
-        for (int dx = 0; dx < T_VOXELS; dx++) {
-            for (int dy = 0; dy < T_VOXELS; dy++) {
-                for (int dz = 0; dz < T_VOXELS; dz++) {
+        int[] tmpStates = new int[EDGE_COUNT];
+        int[] indicesArr = new int[cb(T_VERTS) * EDGE_COUNT];
+        Arrays.fill(indicesArr, -1);
+        int[] edgesArr = new int[cb(T_VERTS)];
+
+        for (int dx = 0; dx < T_VERTS; dx++) {
+            for (int dy = 0; dy < T_VERTS; dy++) {
+                for (int dz = 0; dz < T_VERTS; dz++) {
                     int diBase = densityIndex(dx, dy, dz);
 
                     //check for intersection data for each corner
@@ -108,6 +134,8 @@ public abstract class AbstractVoxelGenerator<PARAM> extends AbstractFarGenerator
                     if (corners == 0 || corners == 0x5555 || corners == 0xAAAA || corners == 0xFFFF) { //if all corners are the same type, this voxel can be safely skipped
                         continue;
                     }
+
+                    Arrays.fill(tmpStates, -1);
 
                     double totalNx = 0.0d;
                     double totalNy = 0.0d;
@@ -163,7 +191,10 @@ public abstract class AbstractVoxelGenerator<PARAM> extends AbstractFarGenerator
                             } else {
                                 edges |= EDGE_DIR_POSITIVE << (faceEdge << 1);
                             }
-                            data.states[faceEdge] = this.getFaceState(baseX + (dx << level), baseY + (dy << level), baseZ + (dz << level), level, nx, ny, nz, density0, density1, faceEdge, layer, param);
+
+                            int state = this.getFaceState(baseX + (dx << level), baseY + (dy << level), baseZ + (dz << level), level, nx, ny, nz, density0, density1, faceEdge, layer, param);
+                            //data.states[faceEdge] = state;
+                            tmpStates[faceEdge] = state;
                         }
                     }
 
@@ -173,7 +204,9 @@ public abstract class AbstractVoxelGenerator<PARAM> extends AbstractFarGenerator
                         continue;
                     }
 
-                    data.edges = edges;
+                    int outIdx = (dx * T_VERTS + dy) * T_VERTS + dz;
+                    edgesArr[outIdx] = edges;
+                    //data.edges = edges;
 
                     //solve QEF and set the tile data
                     qef.solve(vec, 0.1, 1, 0.5);
@@ -184,9 +217,9 @@ public abstract class AbstractVoxelGenerator<PARAM> extends AbstractFarGenerator
                         vec.set(qef.massPoint().x, qef.massPoint().y, qef.massPoint().z);
                     }
 
-                    data.x = clamp(floorI(vec.x * POS_ONE), 0, POS_ONE);
-                    data.y = clamp(floorI(vec.y * POS_ONE), 0, POS_ONE);
-                    data.z = clamp(floorI(vec.z * POS_ONE), 0, POS_ONE);
+                    data.x = (dx << POS_FRACT_SHIFT) + clamp(floorI(vec.x * POS_ONE), 0, POS_ONE);
+                    data.y = (dy << POS_FRACT_SHIFT) + clamp(floorI(vec.y * POS_ONE), 0, POS_ONE);
+                    data.z = (dz << POS_FRACT_SHIFT) + clamp(floorI(vec.z * POS_ONE), 0, POS_ONE);
 
                     //normalize normal vector
                     double nFactor = 1.0d / sqrt(totalNx * totalNx + totalNy * totalNy + totalNz * totalNz);
@@ -196,15 +229,86 @@ public abstract class AbstractVoxelGenerator<PARAM> extends AbstractFarGenerator
 
                     this.populateVoxelBlockData(baseX + (dx << level), baseY + (dy << level), baseZ + (dz << level), level, totalNx, totalNy, totalNz, data, param);
 
-                    builder.set(dx, dy, dz, data);
+                    //
+                    // generate output vertices
+                    //
+
+                    int minIndexIdx = outIdx * EDGE_COUNT + 0;
+                    int maxIndexIdx = outIdx * EDGE_COUNT + 3;
+                    int anyEdgeStateIndex = -1;
+
+                    //pass 1: emit one vertex for each edge with a corresponding set state
+                    for (int edge = 0; edge < EDGE_COUNT; edge++) {
+                        int state = tmpStates[edge];
+                        if (state >= 0) {
+                            data.state = state;
+                            anyEdgeStateIndex = indicesArr[minIndexIdx + edge] = tile.appendVertex(data);
+                        }
+                    }
+
+                    //even if the current voxel has no renderable edges set, we need to be sure that a vertex is emitted in this voxel as it might still be referenced by other
+                    // neighoring voxels
+
+                    //ensure that we have a valid replacement vertex
+                    if (anyEdgeStateIndex < 0) {
+                        data.state = 0;
+                        anyEdgeStateIndex = tile.appendVertex(data);
+                    }
+
+                    //set all edge indices that lack their own vertex to the fallback one
+                    for (int idx = minIndexIdx; idx != maxIndexIdx; idx++) {
+                        if (indicesArr[idx] < 0) {
+                            indicesArr[idx] = anyEdgeStateIndex;
+                        }
+                    }
                 }
             }
         }
 
-        builder.extra(0L); //TODO: compute neighbor connections
+        this.assembleVoxelAlignedMesh(tile, indicesArr, edgesArr);
     }
 
     protected abstract int getFaceState(int blockX, int blockY, int blockZ, int level, double nx, double ny, double nz, double density0, double density1, int edge, int layer, PARAM param);
 
     protected abstract void populateVoxelBlockData(int blockX, int blockY, int blockZ, int level, double nx, double ny, double nz, VoxelData data, PARAM param);
+
+    protected void assembleVoxelAlignedMesh(VoxelTile tile, int[] indices, int[] edgesArr) {
+        for (int i = 0, dx = 0; dx < T_VOXELS; dx++, i += ((1 * T_VERTS + 0) * T_VERTS + 0) - ((0 * T_VERTS + T_VOXELS) * T_VERTS + 0)) {
+            for (int dy = 0; dy < T_VOXELS; dy++, i += ((0 * T_VERTS + 1) * T_VERTS + 0) - ((0 * T_VERTS + 0) * T_VERTS + T_VOXELS)) {
+                for (int dz = 0; dz < T_VOXELS; dz++, i++) {
+                    int edges = edgesArr[(dx * T_VERTS + dy) * T_VERTS + dz];
+                    if (edges == 0) { //no edges are set in this voxel, advance to the next one
+                        continue;
+                    }
+
+                    if ((((edges >> 2) ^ (edges >> 3)) & 1) != 0) { //for some reason y is backwards... let's invert it
+                        edges ^= EDGE_DIR_MASK << 2;
+                    }
+                    for (int edge = 0; edge < EDGE_COUNT; edge++) {
+                        if ((edges & (EDGE_DIR_MASK << (edge << 1))) == EDGE_DIR_NONE) {
+                            continue;
+                        }
+
+                        int base = edge * CONNECTION_INDEX_COUNT;
+                        int oppositeCorner, c0, c1, provoking;
+                        if ((provoking = indices[vertexMapIndex(dx, dy, dz, base, edge)]) < 0
+                            || (c0 = indices[vertexMapIndex(dx, dy, dz, base + 1, edge)]) < 0
+                            || (c1 = indices[vertexMapIndex(dx, dy, dz, base + 2, edge)]) < 0
+                            || (oppositeCorner = indices[vertexMapIndex(dx, dy, dz, base + 3, edge)]) < 0) {
+                            continue; //skip if any of the vertices are missing
+                        }
+
+                        if ((edges & (EDGE_DIR_POSITIVE << (edge << 1))) != 0) { //the face has the positive bit set
+                            tile.appendQuad(oppositeCorner, c0, c1, provoking);
+                        }
+                        if ((edges & (EDGE_DIR_NEGATIVE << (edge << 1))) != 0) { //the face has the negative bit set, output the face but with c0 and c1 swapped
+                            tile.appendQuad(oppositeCorner, c1, c0, provoking);
+                        }
+                    }
+                }
+            }
+        }
+
+        tile.extra(0L); //TODO: compute neighbor connections
+    }
 }

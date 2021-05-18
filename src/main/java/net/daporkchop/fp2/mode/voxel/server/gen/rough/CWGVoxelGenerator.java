@@ -61,13 +61,13 @@ public class CWGVoxelGenerator extends AbstractVoxelGenerator<CWGContext> implem
 
         CWGContext ctx = this.ctx.get();
         ctx.init(baseX + (DMAP_MIN << level), baseZ + (DMAP_MIN << level), level);
-        double[][] densityMap = DMAP_CACHE.get();
+        double[][] densityMap = this.densityMapCache.get();
 
         //water
         double scaleFactor = 1.0d / (1 << level);
         for (int x = DMAP_MIN; x < DMAP_MAX; x++) {
             for (int y = DMAP_MIN; y < DMAP_MAX; y++) {
-                Arrays.fill(densityMap[0], densityIndex(x, y, DMAP_MIN), densityIndex(x, y, DMAP_MAX), ((baseY + (y << level)) - (this.seaLevel - 1)) * scaleFactor);
+                Arrays.fill(densityMap[0], densityIndex(x, y, DMAP_MIN), densityIndex(x, y, DMAP_MAX), ((this.seaLevel - 0.125d) - (baseY + (y << level))) * scaleFactor);
             }
         }
 
@@ -75,7 +75,7 @@ public class CWGVoxelGenerator extends AbstractVoxelGenerator<CWGContext> implem
         ctx.get3d(densityMap[1], baseY + (DMAP_MIN << level));
 
         //actually create the mesh (using dual contouring)
-        this.buildMesh(baseX, baseY, baseZ, level, tile, densityMap, ctx);
+        this.dualContour(baseX, baseY, baseZ, level, tile, densityMap, ctx);
     }
 
     @Override

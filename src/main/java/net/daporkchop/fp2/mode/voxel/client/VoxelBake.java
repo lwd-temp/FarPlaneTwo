@@ -114,7 +114,7 @@ public class VoxelBake {
         final int[] map = MAP_RECYCLER.get().allocate();
 
         try {
-            //step 1: build octrees
+            /*//step 1: build octrees
             PointOctree3I lowOctree = buildLowPointOctree(srcs);
             PointOctree3I highOctree = buildHighPointOctree(srcs, dstPos);
 
@@ -122,28 +122,49 @@ public class VoxelBake {
             writeVertices(srcs, blockX, blockY, blockZ, level, lowOctree, highOctree, map, verts, output);
 
             //step 3: write indices to actually connect the vertices and build the mesh
-            writeIndices(srcs[0], map, indices, lowOctree);
+            writeIndices(srcs[0], map, indices, lowOctree);*/
+
+            writeVertices(srcs[0], verts);
+            writeIndices(srcs[0], indices);
         } finally {
             MAP_RECYCLER.get().release(map);
         }
-
-        /*VoxelTile highParent = srcs[8 + (-BAKE_HIGH_RADIUS_MIN * BAKE_HIGH_CNT + -BAKE_HIGH_RADIUS_MIN) * BAKE_HIGH_CNT + -BAKE_HIGH_RADIUS_MIN];
-
-        boolean anyHighParentIsNull = false;
-        for (int tx = BAKE_HIGH_RADIUS_MIN; tx <= 0; tx++) {
-            for (int ty = BAKE_HIGH_RADIUS_MIN; ty <= 0; ty++) {
-                for (int tz = BAKE_HIGH_RADIUS_MIN; tz <= 0; tz++) {
-                    anyHighParentIsNull |= srcs[bakeHighIndex(tx, ty, tz)] == null;
-                }
-            }
-        }
-
-        if (anyHighParentIsNull) {
-            output.forceRenderParent = true;
-        }*/
     }
 
-    protected PointOctree3I buildLowPointOctree(VoxelTile[] srcs) {
+    protected void writeVertices(@NonNull VoxelTile tile, @NonNull ByteBuf vertices) {
+        SingleBiomeBlockAccess biomeAccess = new SingleBiomeBlockAccess();
+        VoxelData data = new VoxelData();
+
+        for (int i = 0, lim = tile.vertexCount(); i < lim; i++) {
+            tile.getVertex(i, data);
+
+            biomeAccess.biome(FastRegistry.getBiome(data.biome, Biomes.PLAINS));
+
+            IBlockState state = FastRegistry.getBlockState(data.state);
+            vertices.writeIntLE(TexUVs.STATEID_TO_INDEXID.get(state)); //state
+            vertices.writeShortLE(Constants.packedLightTo8BitVec2(data.light)); //light
+            vertices.writeMediumLE(Constants.convertARGB_ABGR(mc.getBlockColors().colorMultiplier(state, biomeAccess, BlockPos.ORIGIN, 0))); //color
+
+            vertices.writeByte(data.x).writeByte(data.y).writeByte(data.z); //pos_low
+            vertices.writeIntLE(Int2_10_10_10_Rev.packCoords(data.x, data.y, data.z)); //pos_high
+        }
+    }
+
+    protected void writeIndices(@NonNull VoxelTile tile, @NonNull ByteBuf[] indices) {
+        VoxelData data = new VoxelData();
+
+        for (int i = 0, lim = tile.indexCount(); i < lim; i += 3) {
+            int v0 = tile.getIndex(i + 0);
+            int v1 = tile.getIndex(i + 1);
+            int v2 = tile.getIndex(i + 2);
+
+            tile.getVertex(v2, data);
+            IBlockState state = FastRegistry.getBlockState(data.state);
+            indices[renderType(state)].writeShortLE(v0).writeShortLE(v1).writeShortLE(v2);
+        }
+    }
+
+    /*protected PointOctree3I buildLowPointOctree(VoxelTile[] srcs) {
         if (true) { //TODO: low octree isn't actually used atm
             return null;
         }
@@ -180,9 +201,9 @@ public class VoxelBake {
         }
 
         return new PointOctree3I(highPoints.toIntArray());
-    }
+    }*/
 
-    protected PointOctree3I buildHighPointOctree(VoxelTile[] srcs, VoxelPos pos) {
+    /*protected PointOctree3I buildHighPointOctree(VoxelTile[] srcs, VoxelPos pos) {
         final VoxelData data = new VoxelData();
         final IntList highPoints = new IntArrayList();
 
@@ -219,9 +240,9 @@ public class VoxelBake {
         }
 
         return new PointOctree3I(highPoints.toIntArray());
-    }
+    }*/
 
-    protected void writeVertices(VoxelTile[] srcs, int blockX, int blockY, int blockZ, int level, PointOctree3I lowOctree, PointOctree3I highOctree, int[] map, ByteBuf verts, BakeOutput output) {
+    /*protected void writeVertices(VoxelTile[] srcs, int blockX, int blockY, int blockZ, int level, PointOctree3I lowOctree, PointOctree3I highOctree, int[] map, ByteBuf verts, BakeOutput output) {
         final BlockPos.MutableBlockPos pos = new BlockPos.MutableBlockPos();
         final SingleBiomeBlockAccess biomeAccess = new SingleBiomeBlockAccess();
         final VoxelData data = new VoxelData();
@@ -248,9 +269,9 @@ public class VoxelBake {
                 }
             }
         }
-    }
+    }*/
 
-    protected int writeVertex(int baseX, int baseY, int baseZ, int level, int x, int y, int z, VoxelData data, ByteBuf vertices, BlockPos.MutableBlockPos pos, SingleBiomeBlockAccess biomeAccess, int[] map, int indexCounter, PointOctree3I octree, BakeOutput output, int i) {
+    /*protected int writeVertex(int baseX, int baseY, int baseZ, int level, int x, int y, int z, VoxelData data, ByteBuf vertices, BlockPos.MutableBlockPos pos, SingleBiomeBlockAccess biomeAccess, int[] map, int indexCounter, PointOctree3I octree, BakeOutput output, int i) {
         baseX += (x & T_VOXELS) << level;
         baseY += (y & T_VOXELS) << level;
         baseZ += (z & T_VOXELS) << level;
@@ -318,9 +339,9 @@ public class VoxelBake {
             map[baseMapIndex + edge] = indexCounter++;
         }
         return indexCounter;
-    }
+    }*/
 
-    protected void writeIndices(VoxelTile src, int[] map, ByteBuf[] indices, PointOctree3I lowOctree) {
+    /*protected void writeIndices(VoxelTile src, int[] map, ByteBuf[] indices, PointOctree3I lowOctree) {
         final VoxelData data = new VoxelData();
 
         for (int j = 0; j < src.count(); j++) {
@@ -369,5 +390,5 @@ public class VoxelBake {
                 emitQuad(buf, oppositeCorner, c0, c1, provoking);
             }
         }
-    }
+    }*/
 }

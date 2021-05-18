@@ -47,7 +47,7 @@ public abstract class AbstractExactVoxelGenerator extends AbstractFarGenerator i
 
     @Override
     public void generate(@NonNull IBlockHeightAccess world, @NonNull VoxelPos posIn, @NonNull VoxelTile tile) {
-        final int baseX = posIn.blockX();
+        /*final int baseX = posIn.blockX();
         final int baseY = posIn.blockY();
         final int baseZ = posIn.blockZ();
 
@@ -146,6 +146,8 @@ public abstract class AbstractExactVoxelGenerator extends AbstractFarGenerator i
         }
 
         //TODO: compute neighbor connections
-        tile.extra(0L);
+        tile.extra(0L);*/
+
+        throw new UnsupportedOperationException(); //TODO
     }
 }
