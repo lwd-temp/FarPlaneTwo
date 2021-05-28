@@ -68,17 +68,9 @@ public abstract class AbstractVoxelGenerator<PARAM> extends AbstractFarGenerator
         return ((x - DMAP_MIN) * DMAP_SIZE + y - DMAP_MIN) * DMAP_SIZE + z - DMAP_MIN;
     }
 
-    protected static int vertexMapIndex(int dx, int dy, int dz, int i, int edge) {
-        int j = CONNECTION_INDICES[i];
-        int ddx = dx + ((j >> 2) & 1);
-        int ddy = dy + ((j >> 1) & 1);
-        int ddz = dz + (j & 1);
-
-        return ((ddx * T_VERTS + ddy) * T_VERTS + ddz) * 3 + edge;
-    }
-
     protected final Ref<double[][]> densityMapCache = ThreadRef.soft(() -> new double[2][cb(DMAP_SIZE)]);
     protected final Ref<byte[]> typeMapCache = ThreadRef.soft(() -> new byte[cb(DMAP_SIZE)]);
+    protected final Ref<VoxelAlignedMeshAssembler> assemblerCache = ThreadRef.soft(VoxelAlignedMeshAssembler::new);
 
     public AbstractVoxelGenerator(@NonNull WorldServer world) {
         super(world);
@@ -114,10 +106,8 @@ public abstract class AbstractVoxelGenerator<PARAM> extends AbstractFarGenerator
         //use bit flags to identify voxel types rather than reading from the density map each time to keep innermost loop head tight and cache-friendly
         byte[] tMap = this.populateTypeMapFromDensityMap(densityMap);
 
+        VoxelAlignedMeshAssembler assembler = this.assemblerCache.get().reset();
         int[] tmpStates = new int[EDGE_COUNT];
-        int[] indicesArr = new int[cb(T_VERTS) * EDGE_COUNT];
-        Arrays.fill(indicesArr, -1);
-        int[] edgesArr = new int[cb(T_VERTS)];
 
         for (int dx = 0; dx < T_VERTS; dx++) {
             for (int dy = 0; dy < T_VERTS; dy++) {
@@ -204,9 +194,10 @@ public abstract class AbstractVoxelGenerator<PARAM> extends AbstractFarGenerator
                         continue;
                     }
 
-                    int outIdx = (dx * T_VERTS + dy) * T_VERTS + dz;
-                    edgesArr[outIdx] = edges;
-                    //data.edges = edges;
+                    //for some reason y is backwards, so we invert it as long as it isn't facing both directions
+                    if ((((edges >> 2) ^ (edges >> 3)) & 1) != 0) {
+                        edges ^= EDGE_DIR_MASK << 2;
+                    }
 
                     //solve QEF and set the tile data
                     qef.solve(vec, 0.1, 1, 0.5);
@@ -229,86 +220,16 @@ public abstract class AbstractVoxelGenerator<PARAM> extends AbstractFarGenerator
 
                     this.populateVoxelBlockData(baseX + (dx << level), baseY + (dy << level), baseZ + (dz << level), level, totalNx, totalNy, totalNz, data, param);
 
-                    //
-                    // generate output vertices
-                    //
-
-                    int minIndexIdx = outIdx * EDGE_COUNT + 0;
-                    int maxIndexIdx = outIdx * EDGE_COUNT + 3;
-                    int anyEdgeStateIndex = -1;
-
-                    //pass 1: emit one vertex for each edge with a corresponding set state
-                    for (int edge = 0; edge < EDGE_COUNT; edge++) {
-                        int state = tmpStates[edge];
-                        if (state >= 0) {
-                            data.state = state;
-                            anyEdgeStateIndex = indicesArr[minIndexIdx + edge] = tile.appendVertex(data);
-                        }
-                    }
-
-                    //even if the current voxel has no renderable edges set, we need to be sure that a vertex is emitted in this voxel as it might still be referenced by other
-                    // neighoring voxels
-
-                    //ensure that we have a valid replacement vertex
-                    if (anyEdgeStateIndex < 0) {
-                        data.state = 0;
-                        anyEdgeStateIndex = tile.appendVertex(data);
-                    }
-
-                    //set all edge indices that lack their own vertex to the fallback one
-                    for (int idx = minIndexIdx; idx != maxIndexIdx; idx++) {
-                        if (indicesArr[idx] < 0) {
-                            indicesArr[idx] = anyEdgeStateIndex;
-                        }
-                    }
+                    //let assembler write vertex data to tile
+                    assembler.setEdgesAndVertices(tile, dx, dy, dz, edges, data, tmpStates);
                 }
             }
         }
 
-        this.assembleVoxelAlignedMesh(tile, indicesArr, edgesArr);
+        assembler.assemble(tile);
     }
 
     protected abstract int getFaceState(int blockX, int blockY, int blockZ, int level, double nx, double ny, double nz, double density0, double density1, int edge, int layer, PARAM param);
 
     protected abstract void populateVoxelBlockData(int blockX, int blockY, int blockZ, int level, double nx, double ny, double nz, VoxelData data, PARAM param);
-
-    protected void assembleVoxelAlignedMesh(VoxelTile tile, int[] indices, int[] edgesArr) {
-        for (int i = 0, dx = 0; dx < T_VOXELS; dx++, i += ((1 * T_VERTS + 0) * T_VERTS + 0) - ((0 * T_VERTS + T_VOXELS) * T_VERTS + 0)) {
-            for (int dy = 0; dy < T_VOXELS; dy++, i += ((0 * T_VERTS + 1) * T_VERTS + 0) - ((0 * T_VERTS + 0) * T_VERTS + T_VOXELS)) {
-                for (int dz = 0; dz < T_VOXELS; dz++, i++) {
-                    int edges = edgesArr[(dx * T_VERTS + dy) * T_VERTS + dz];
-                    if (edges == 0) { //no edges are set in this voxel, advance to the next one
-                        continue;
-                    }
-
-                    if ((((edges >> 2) ^ (edges >> 3)) & 1) != 0) { //for some reason y is backwards... let's invert it
-                        edges ^= EDGE_DIR_MASK << 2;
-                    }
-                    for (int edge = 0; edge < EDGE_COUNT; edge++) {
-                        if ((edges & (EDGE_DIR_MASK << (edge << 1))) == EDGE_DIR_NONE) {
-                            continue;
-                        }
-
-                        int base = edge * CONNECTION_INDEX_COUNT;
-                        int oppositeCorner, c0, c1, provoking;
-                        if ((provoking = indices[vertexMapIndex(dx, dy, dz, base, edge)]) < 0
-                            || (c0 = indices[vertexMapIndex(dx, dy, dz, base + 1, edge)]) < 0
-                            || (c1 = indices[vertexMapIndex(dx, dy, dz, base + 2, edge)]) < 0
-                            || (oppositeCorner = indices[vertexMapIndex(dx, dy, dz, base + 3, edge)]) < 0) {
-                            continue; //skip if any of the vertices are missing
-                        }
-
-                        if ((edges & (EDGE_DIR_POSITIVE << (edge << 1))) != 0) { //the face has the positive bit set
-                            tile.appendQuad(oppositeCorner, c0, c1, provoking);
-                        }
-                        if ((edges & (EDGE_DIR_NEGATIVE << (edge << 1))) != 0) { //the face has the negative bit set, output the face but with c0 and c1 swapped
-                            tile.appendQuad(oppositeCorner, c1, c0, provoking);
-                        }
-                    }
-                }
-            }
-        }
-
-        tile.extra(0L); //TODO: compute neighbor connections
-    }
 }

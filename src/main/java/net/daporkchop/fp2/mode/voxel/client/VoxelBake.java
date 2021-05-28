@@ -154,6 +154,9 @@ public class VoxelBake {
         VoxelData data = new VoxelData();
 
         for (int i = 0, lim = tile.indexCount(); i < lim; i += 3) {
+            //the mesh always consists of triangles. we can iterate through one triangle at a time and examine the provoking vertex
+            // in order to determine which render layer it should be put on.
+
             int v0 = tile.getIndex(i + 0);
             int v1 = tile.getIndex(i + 1);
             int v2 = tile.getIndex(i + 2);
