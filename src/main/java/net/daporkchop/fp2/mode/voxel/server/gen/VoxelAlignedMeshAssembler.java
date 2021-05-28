@@ -60,6 +60,11 @@ public class VoxelAlignedMeshAssembler {
     }
 
     public void setEdgesAndVertices(@NonNull VoxelTile tile, int x, int y, int z, int edges, @NonNull VoxelData data, @NonNull int[] states) {
+        //for some reason y is backwards, so we invert it as long as it isn't facing both directions
+        if ((((edges >> 2) ^ (edges >> 3)) & 1) != 0) {
+            edges ^= EDGE_DIR_MASK << 2;
+        }
+
         int outIdx = (x * T_VERTS + y) * T_VERTS + z;
         this.edges[outIdx] = edges;
 
@@ -102,7 +107,7 @@ public class VoxelAlignedMeshAssembler {
         for (int i = 0, dx = 0; dx < T_VOXELS; dx++, i += ((1 * T_VERTS + 0) * T_VERTS + 0) - ((0 * T_VERTS + T_VOXELS) * T_VERTS + 0)) {
             for (int dy = 0; dy < T_VOXELS; dy++, i += ((0 * T_VERTS + 1) * T_VERTS + 0) - ((0 * T_VERTS + 0) * T_VERTS + T_VOXELS)) {
                 for (int dz = 0; dz < T_VOXELS; dz++, i++) {
-                    int edges = this.edges[(dx * T_VERTS + dy) * T_VERTS + dz];
+                    int edges = this.edges[i];
                     if (edges == 0) { //no edges are set in this voxel, advance to the next one
                         continue;
                     }

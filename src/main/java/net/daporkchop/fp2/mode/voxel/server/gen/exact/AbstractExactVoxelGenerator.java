@@ -28,43 +28,112 @@ import net.daporkchop.fp2.mode.common.server.gen.AbstractFarGenerator;
 import net.daporkchop.fp2.mode.voxel.VoxelData;
 import net.daporkchop.fp2.mode.voxel.VoxelPos;
 import net.daporkchop.fp2.mode.voxel.VoxelTile;
+import net.daporkchop.fp2.mode.voxel.server.gen.VoxelAlignedMeshAssembler;
 import net.daporkchop.fp2.util.Constants;
+import net.daporkchop.lib.common.ref.Ref;
+import net.daporkchop.lib.common.ref.ThreadRef;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.world.WorldServer;
+
+import java.util.Arrays;
 
 import static java.lang.Math.*;
 import static net.daporkchop.fp2.mode.voxel.VoxelConstants.*;
 import static net.daporkchop.fp2.util.BlockType.*;
 import static net.daporkchop.fp2.util.Constants.*;
+import static net.daporkchop.fp2.util.math.MathUtil.*;
+import static net.daporkchop.lib.common.util.PValidation.*;
 
 /**
  * @author DaPorkchop_
  */
 public abstract class AbstractExactVoxelGenerator extends AbstractFarGenerator implements IFarGeneratorExact<VoxelPos, VoxelTile> {
+    public static final int TMAP_MIN = 0;
+    public static final int TMAP_MAX = T_VERTS + 1;
+    public static final int TMAP_SIZE = TMAP_MAX - TMAP_MIN;
+    
+    protected static final int DI_ADD_000 = densityIndex(TMAP_MIN + 0, TMAP_MIN + 0, TMAP_MIN + 0);
+    protected static final int DI_ADD_001 = densityIndex(TMAP_MIN + 0, TMAP_MIN + 0, TMAP_MIN + 1);
+    protected static final int DI_ADD_010 = densityIndex(TMAP_MIN + 0, TMAP_MIN + 1, TMAP_MIN + 0);
+    protected static final int DI_ADD_011 = densityIndex(TMAP_MIN + 0, TMAP_MIN + 1, TMAP_MIN + 1);
+    protected static final int DI_ADD_100 = densityIndex(TMAP_MIN + 1, TMAP_MIN + 0, TMAP_MIN + 0);
+    protected static final int DI_ADD_101 = densityIndex(TMAP_MIN + 1, TMAP_MIN + 0, TMAP_MIN + 1);
+    protected static final int DI_ADD_110 = densityIndex(TMAP_MIN + 1, TMAP_MIN + 1, TMAP_MIN + 0);
+    protected static final int DI_ADD_111 = densityIndex(TMAP_MIN + 1, TMAP_MIN + 1, TMAP_MIN + 1);
+
+    protected static final int[] DI_ADD = {
+            DI_ADD_000, DI_ADD_001,
+            DI_ADD_010, DI_ADD_011,
+            DI_ADD_100, DI_ADD_101,
+            DI_ADD_110, DI_ADD_111
+    };
+
+    protected static int densityIndex(int x, int y, int z) {
+        return ((x - TMAP_MIN) * TMAP_SIZE + y - TMAP_MIN) * TMAP_SIZE + z - TMAP_MIN;
+    }
+
+    protected final Ref<int[]> stateMapCache = ThreadRef.soft(() -> new int[cb(TMAP_SIZE)]);
+    protected final Ref<byte[]> typeMapCache = ThreadRef.soft(() -> new byte[cb(TMAP_SIZE)]);
+    protected final Ref<VoxelAlignedMeshAssembler> assemblerCache = ThreadRef.soft(VoxelAlignedMeshAssembler::new);
+
     public AbstractExactVoxelGenerator(@NonNull WorldServer world) {
         super(world);
     }
 
+    protected int[] populateStateMapFromWorld(@NonNull IBlockHeightAccess world, int baseX, int baseY, int baseZ) {
+        int[] stateMap = this.stateMapCache.get();
+        BlockPos.MutableBlockPos pos = new BlockPos.MutableBlockPos();
+
+        //range check here to allow JIT to avoid range checking inside the loop
+        checkArg(stateMap.length >= cb(TMAP_SIZE));
+
+        for (int i = 0, dx = TMAP_MIN; dx < TMAP_MAX; dx++) { //set each type flag depending on the block state at the corresponding position
+            for (int dy = TMAP_MIN; dy < TMAP_MAX; dy++) {
+                for (int dz = TMAP_MIN; dz < TMAP_MAX; dz++, i++) {
+                    stateMap[i] = FastRegistry.getId(world.getBlockState(pos.setPos(baseX + dx, baseY + dy, baseZ + dz)));
+                }
+            }
+        }
+
+        return stateMap;
+    }
+
+    protected byte[] populateTypeMapFromStateMap(@NonNull int[] stateMap) {
+        byte[] typeMap = this.typeMapCache.get();
+
+        //range check here to allow JIT to avoid range checking inside the loop
+        checkArg(typeMap.length >= cb(TMAP_SIZE) && stateMap.length >= cb(TMAP_SIZE));
+
+        for (int i = 0; i < cb(TMAP_SIZE); i++) { //set each type flag depending on the block state at the corresponding position
+            typeMap[i] = (byte) blockType(stateMap[i]);
+        }
+
+        return typeMap;
+    }
+
     @Override
     public void generate(@NonNull IBlockHeightAccess world, @NonNull VoxelPos posIn, @NonNull VoxelTile tile) {
-        /*final int baseX = posIn.blockX();
+        final int baseX = posIn.blockX();
         final int baseY = posIn.blockY();
         final int baseZ = posIn.blockZ();
 
+        int[] stateMap = this.populateStateMapFromWorld(world, baseX, baseY, baseZ);
+        //use bit flags to identify voxel types rather than reading from the world each time to keep innermost loop head tight and cache-friendly
+        byte[] tMap = this.populateTypeMapFromStateMap(stateMap);
+
+        VoxelAlignedMeshAssembler assembler = this.assemblerCache.get().reset();
+        int[] tmpStates = new int[EDGE_COUNT];
+
         BlockPos.MutableBlockPos pos = new BlockPos.MutableBlockPos();
+
         VoxelData data = new VoxelData();
 
-        data.x = data.y = data.z = POS_ONE >> 1;
-
-        for (int dx = 0; dx < T_VOXELS; dx++) {
-            for (int dy = 0; dy < T_VOXELS; dy++) {
-                for (int dz = 0; dz < T_VOXELS; dz++) {
+        for (int dx = 0; dx < T_VERTS; dx++) {
+            for (int dy = 0; dy < T_VERTS; dy++) {
+                for (int dz = 0; dz < T_VERTS; dz++) {
                     int corners = 0;
-                    for (int i = 0; i < 8; i++) {
-                        int x = baseX + dx + ((i >> 2) & 1);
-                        int y = baseY + dy + ((i >> 1) & 1);
-                        int z = baseZ + dz + (i & 1);
-                        corners |= blockType(world.getBlockState(pos.setPos(x, y, z))) << (i << 1);
+                    for (int diBase = densityIndex(dx, dy, dz), i = 0; i < 8; i++) {
+                        corners |= (tMap[diBase + DI_ADD[i]] & 0xFF) << (i << 1);
                     }
 
                     if (corners == 0 || corners == 0x5555 || corners == 0xAAAA) { //if all corners are the same type, this voxel can be safely skipped
@@ -72,7 +141,6 @@ public abstract class AbstractExactVoxelGenerator extends AbstractFarGenerator i
                     }
 
                     int edges = 0;
-
                     for (int edge = 0; edge < EDGE_COUNT; edge++) {
                         int c0 = EDGE_VERTEX_MAP[edge << 1] << 1;
                         int c1 = EDGE_VERTEX_MAP[(edge << 1) | 1] << 1;
@@ -88,18 +156,16 @@ public abstract class AbstractExactVoxelGenerator extends AbstractFarGenerator i
                         }
                     }
 
-                    data.edges = edges;
-
+                    Arrays.fill(tmpStates, -1);
                     for (int edge = 0; edge < EDGE_COUNT; edge++) {
                         if ((edges & (EDGE_DIR_MASK << (edge << 1))) != EDGE_DIR_NONE) {
                             //((edges >> (edge << 1) >> 1) & 1) is 1 if the face is negative, 0 otherwise
                             int i = EDGE_VERTEX_MAP[(edge << 1) | ((edges >> (edge << 1) >> 1) & 1)];
-                            pos.setPos(baseX + dx + ((i >> 2) & 1), baseY + dy + ((i >> 1) & 1), baseZ + dz + (i & 1));
-                            data.states[edge] = FastRegistry.getId(world.getBlockState(pos));
+                            tmpStates[edge] = stateMap[densityIndex(dx + ((i >> 2) & 1), dy + ((i >> 1) & 1), dz + (i & 1))];
                         }
                     }
 
-                    data.biome = FastRegistry.getId(world.getBiome(pos));
+                    data.biome = FastRegistry.getId(world.getBiome(pos.setPos(baseX + dx, baseY + dy, baseZ + dz)));
 
                     int skyLight = 0;
                     int blockLight = 0;
@@ -140,14 +206,15 @@ public abstract class AbstractExactVoxelGenerator extends AbstractFarGenerator i
                     }
                     data.light = Constants.packCombinedLight(skyLight << 20 | blockLight << 4);
 
-                    tile.set(dx, dy, dz, data);
+                    data.x = (dx + 1) << POS_FRACT_SHIFT;
+                    data.y = (dy + 1) << POS_FRACT_SHIFT;
+                    data.z = (dz + 1) << POS_FRACT_SHIFT;
+
+                    assembler.setEdgesAndVertices(tile, dx, dy, dz, edges, data, tmpStates);
                 }
             }
         }
 
-        //TODO: compute neighbor connections
-        tile.extra(0L);*/
-
-        throw new UnsupportedOperationException(); //TODO
+        assembler.assemble(tile);
     }
 }

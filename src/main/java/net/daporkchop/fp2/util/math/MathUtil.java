@@ -81,4 +81,17 @@ public class MathUtil {
     public static double minimize(double d0, double d1) {
         return d0 / (d0 - d1);
     }
+
+    public static float fastInvSqrt(float x) {
+        float y = Float.intBitsToFloat(0x5F3759DF - (Float.floatToRawIntBits(x) >> 1));
+        return y * (1.5f - (0.5f * x) * (y * y));
+    }
+
+    /**
+     * {@code 1.0d / sqrt(x)}
+     */
+    public static double fastInvSqrt(double x) {
+        double y = Double.longBitsToDouble(0x5FE6EB50C7B537A9L - (Double.doubleToRawLongBits(x) >> 1L));
+        return y * (1.5d - (0.5d * x) * (y * y));
+    }
 }

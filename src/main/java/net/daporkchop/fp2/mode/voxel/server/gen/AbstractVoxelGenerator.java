@@ -117,8 +117,7 @@ public abstract class AbstractVoxelGenerator<PARAM> extends AbstractFarGenerator
                     //check for intersection data for each corner
                     int corners = 0;
                     for (int i = 0; i < 8; i++) {
-                        int di = diBase + DI_ADD[i];
-                        corners |= (tMap[di] & 0xFF) << (i << 1);
+                        corners |= (tMap[diBase + DI_ADD[i]] & 0xFF) << (i << 1);
                     }
 
                     if (corners == 0 || corners == 0x5555 || corners == 0xAAAA || corners == 0xFFFF) { //if all corners are the same type, this voxel can be safely skipped
@@ -194,11 +193,6 @@ public abstract class AbstractVoxelGenerator<PARAM> extends AbstractFarGenerator
                         continue;
                     }
 
-                    //for some reason y is backwards, so we invert it as long as it isn't facing both directions
-                    if ((((edges >> 2) ^ (edges >> 3)) & 1) != 0) {
-                        edges ^= EDGE_DIR_MASK << 2;
-                    }
-
                     //solve QEF and set the tile data
                     qef.solve(vec, 0.1, 1, 0.5);
                     if (vec.x < 0.0d || vec.x > 1.0d
@@ -213,7 +207,7 @@ public abstract class AbstractVoxelGenerator<PARAM> extends AbstractFarGenerator
                     data.z = (dz << POS_FRACT_SHIFT) + clamp(floorI(vec.z * POS_ONE), 0, POS_ONE);
 
                     //normalize normal vector
-                    double nFactor = 1.0d / sqrt(totalNx * totalNx + totalNy * totalNy + totalNz * totalNz);
+                    double nFactor = fastInvSqrt(totalNx * totalNx + totalNy * totalNy + totalNz * totalNz);
                     totalNx *= nFactor;
                     totalNy *= nFactor;
                     totalNz *= nFactor;

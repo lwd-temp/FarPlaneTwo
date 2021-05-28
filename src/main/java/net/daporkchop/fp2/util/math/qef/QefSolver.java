@@ -1,7 +1,7 @@
 /*
  * Adapted from The MIT License (MIT)
  *
- * Copyright (c) 2020-2020 DaPorkchop_
+ * Copyright (c) 2020-2021 DaPorkchop_
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation
  * files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy,
@@ -27,6 +27,7 @@ import net.daporkchop.fp2.util.math.Vector3d;
 import net.daporkchop.fp2.util.threading.DefaultFastThreadLocal;
 
 import static java.lang.Math.*;
+import static net.daporkchop.fp2.util.math.MathUtil.*;
 import static net.daporkchop.lib.common.util.PValidation.*;
 
 /**
@@ -55,20 +56,6 @@ public class QefSolver {
         return (double) sqrt(2.0d * (a.m01 * a.m01 + a.m02 * a.m02 + a.m12 * a.m12));
     }
 
-    protected static void calcSymmetricGivensCoefficients(double a_pp, double a_pq, double a_qq, double c, double s) {
-        if (a_pq == 0.0d) {
-            c = 1.0d;
-            s = 0.0d;
-            return;
-        }
-
-        double tau = (a_qq - a_pp) / (2.0d * a_pq);
-        double stt = (double) sqrt(1.0d + tau * tau);
-        double tan = 1.0d / (tau >= 0 ? tau + stt : tau - stt);
-        c = 1.0d / (double) sqrt(1.0d + tan * tan);
-        s = tan * c;
-    }
-
     protected static void rotate01(SMatrix3d vtav, Matrix3d v) {
         if (vtav.m01 == 0) {
             return;
@@ -86,9 +73,9 @@ public class QefSolver {
                     s = 0.0d;
                 } else {
                     double tau = (a_qq - a_pp) / (2.0d * a_pq);
-                    double stt = (double) sqrt(1.0d + tau * tau);
+                    double stt = sqrt(1.0d + tau * tau);
                     double tan = 1.0d / (tau >= 0 ? tau + stt : tau - stt);
-                    c = 1.0d / (double) sqrt(1.0d + tan * tan);
+                    c = fastInvSqrt(1.0d + tan * tan);
                     s = tan * c;
                 }
             }
@@ -131,9 +118,9 @@ public class QefSolver {
                     s = 0.0d;
                 } else {
                     double tau = (a_qq - a_pp) / (2.0d * a_pq);
-                    double stt = (double) sqrt(1.0d + tau * tau);
+                    double stt = sqrt(1.0d + tau * tau);
                     double tan = 1.0d / (tau >= 0 ? tau + stt : tau - stt);
-                    c = 1.0d / (double) sqrt(1.0d + tan * tan);
+                    c = fastInvSqrt(1.0d + tan * tan);
                     s = tan * c;
                 }
             }
@@ -176,9 +163,9 @@ public class QefSolver {
                     s = 0.0d;
                 } else {
                     double tau = (a_qq - a_pp) / (2.0d * a_pq);
-                    double stt = (double) sqrt(1.0d + tau * tau);
+                    double stt = sqrt(1.0d + tau * tau);
                     double tan = 1.0d / (tau >= 0 ? tau + stt : tau - stt);
-                    c = 1.0d / (double) sqrt(1.0d + tan * tan);
+                    c = fastInvSqrt(1.0d + tan * tan);
                     s = tan * c;
                 }
             }

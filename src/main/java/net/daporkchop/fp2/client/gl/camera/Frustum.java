@@ -27,8 +27,8 @@ import net.minecraft.util.math.AxisAlignedBB;
 
 import java.nio.FloatBuffer;
 
-import static java.lang.Math.*;
 import static net.daporkchop.fp2.client.gl.OpenGL.*;
+import static net.daporkchop.fp2.util.math.MathUtil.*;
 import static org.lwjgl.opengl.GL11.*;
 
 /**
@@ -40,8 +40,7 @@ public class Frustum implements IFrustum, ICamera {
     public static final Frustum INSTANCE = new Frustum();
 
     protected static void normalize(double[] arr, int off) {
-        double len = sqrt(arr[off + 0] * arr[off + 0] + arr[off + 1] * arr[off + 1] + arr[off + 2] * arr[off + 2] + arr[off + 3] * arr[off + 3]);
-        double d = 1.0d / len; //jvm isn't allowed to do this optimization itself
+        double d = fastInvSqrt(arr[off + 0] * arr[off + 0] + arr[off + 1] * arr[off + 1] + arr[off + 2] * arr[off + 2] + arr[off + 3] * arr[off + 3]);
         arr[off + 0] *= d;
         arr[off + 1] *= d;
         arr[off + 2] *= d;
