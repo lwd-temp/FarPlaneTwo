@@ -49,7 +49,7 @@ public class VoxelScalerVertexClustering implements IFarScaler<VoxelPos, VoxelTi
     //protected static final int SRC_MIN = -4;
     //protected static final int SRC_MAX = (T_VOXELS << 1) + 4;
     protected static final int SRC_MIN = 0;
-    protected static final int SRC_MAX = (T_VOXELS << 1) + 2;
+    protected static final int SRC_MAX = (T_VOXELS + 2) << 1;
     protected static final int SRC_SIZE = SRC_MAX - SRC_MIN;
 
     protected static final int SRC_TILE_MIN = SRC_MIN >> T_SHIFT;
@@ -122,6 +122,27 @@ public class VoxelScalerVertexClustering implements IFarScaler<VoxelPos, VoxelTi
                         data2.x = data2.x + (tx << (POS_FRACT_SHIFT + T_SHIFT)) >> 1;
                         data2.y = data2.y + (ty << (POS_FRACT_SHIFT + T_SHIFT)) >> 1;
                         data2.z = data2.z + (tz << (POS_FRACT_SHIFT + T_SHIFT)) >> 1;
+
+                        int mask = (tx == SRC_TILE_MAX - 1 ? 4 : 0) | (ty == SRC_TILE_MAX - 1 ? 2 : 0) | (tz == SRC_TILE_MAX - 1 ? 1 : 0);
+                        data0.lowEdge &= ~mask;
+                        data1.lowEdge &= ~mask;
+                        data2.lowEdge &= ~mask;
+                        data0.highEdge &= mask;
+                        data1.highEdge &= mask;
+                        data2.highEdge &= mask;
+
+                        /*if ((tx & 3) == tx && (ty & 3) == ty && (tz & 3) == tz) {
+                            int mask = ((tx >> 1) << 2) | ((ty >> 1) << 1) | (tz >> 1);
+                            data0.lowEdge &= ~mask;
+                            data1.lowEdge &= ~mask;
+                            data2.lowEdge &= ~mask;
+                            data0.highEdge &= mask;
+                            data1.highEdge &= mask;
+                            data2.highEdge &= mask;
+                        } else {
+                            data0.lowEdge = data1.lowEdge = data2.lowEdge = 0;
+                            data0.highEdge = data1.highEdge = data2.highEdge = 7;
+                        }*/
 
                         if (outOfBounds(data0) && outOfBounds(data1) && outOfBounds(data2)) {
                             continue;

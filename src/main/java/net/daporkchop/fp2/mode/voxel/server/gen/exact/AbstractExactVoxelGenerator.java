@@ -40,7 +40,6 @@ import java.util.Arrays;
 
 import static java.lang.Math.*;
 import static net.daporkchop.fp2.mode.voxel.VoxelConstants.*;
-import static net.daporkchop.fp2.mode.voxel.server.gen.AbstractVoxelGenerator.*;
 import static net.daporkchop.fp2.util.BlockType.*;
 import static net.daporkchop.fp2.util.Constants.*;
 import static net.daporkchop.fp2.util.math.MathUtil.*;

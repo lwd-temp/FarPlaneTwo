@@ -30,6 +30,8 @@ public class VoxelData {
     public int x;
     public int y;
     public int z;
+    public int lowEdge;
+    public int highEdge;
 
     //block data (for texturing and shading)
     public int biome;
@@ -45,6 +47,8 @@ public class VoxelData {
         this.x = 0;
         this.y = 0;
         this.z = 0;
+        this.lowEdge = 0;
+        this.highEdge = 0;
         this.biome = 0;
         this.light = 0;
         this.state = 0;

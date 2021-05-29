@@ -43,8 +43,8 @@ public class VoxelTile implements IFarTile {
     //vertex layout (in ints):
     //0: pos
     //  ^ 2 bits are free
-    //1: (biome << 8) | light
-    //  ^ 16 bits are free
+    //1: (lowEdge << 19) (highEdge << 16) | (biome << 8) | light
+    //  ^ 10 bits are free
     //2: state
 
     protected static final int MAX_VERTEX_COUNT = (T_VERTS * T_VERTS * T_VERTS) * 64;
@@ -60,7 +60,7 @@ public class VoxelTile implements IFarTile {
 
     static void writeVertex(long base, VoxelData data) {
         PUnsafe.putInt(base + 0L, Int2_10_10_10_Rev.packCoords(data.x, data.y, data.z));
-        PUnsafe.putInt(base + 4L, (data.biome << 8) | data.light);
+        PUnsafe.putInt(base + 4L, ((data.lowEdge << 19) | (data.highEdge << 16)) | ((data.biome << 8) | data.light));
         PUnsafe.putInt(base + 8L, data.state);
     }
 
@@ -72,6 +72,8 @@ public class VoxelTile implements IFarTile {
         data.x = Int2_10_10_10_Rev.unpackX(i0);
         data.y = Int2_10_10_10_Rev.unpackY(i0);
         data.z = Int2_10_10_10_Rev.unpackZ(i0);
+        data.lowEdge = (i1 >> 19) & 7;
+        data.highEdge = (i1 >> 16) & 7;
 
         data.biome = (i1 >> 8) & 0xFF;
         data.light = i1 & 0xFF;
@@ -112,6 +114,17 @@ public class VoxelTile implements IFarTile {
 
     public VoxelTile appendIndex(int index) {
         PUnsafe.putChar(this.addr + INDEX_START + (long) this.indexCount++ * INDEX_SIZE, (char) index);
+        return this;
+    }
+
+    public VoxelTile appendTriangle(int c0, int c1, int provoking) {
+        long addr = this.addr + INDEX_START + (long) this.indexCount * INDEX_SIZE;
+        this.indexCount += 3;
+
+        PUnsafe.putChar(addr + 0L * INDEX_SIZE, (char) c0);
+        PUnsafe.putChar(addr + 1L * INDEX_SIZE, (char) c1);
+        PUnsafe.putChar(addr + 2L * INDEX_SIZE, (char) provoking);
+
         return this;
     }
 

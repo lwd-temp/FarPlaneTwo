@@ -68,6 +68,9 @@ public class VoxelAlignedMeshAssembler {
         int outIdx = (x * T_VERTS + y) * T_VERTS + z;
         this.edges[outIdx] = edges;
 
+        data.lowEdge = (x == 0 ? 4 : 0) | (y == 0 ? 2 : 0) | (z == 0 ? 1 : 0);
+        data.highEdge = ((x >> T_SHIFT) << 2) | ((y >> T_SHIFT) << 1) | (z >> T_SHIFT);
+
         int minIndexIdx = outIdx * EDGE_COUNT + 0;
         int maxIndexIdx = outIdx * EDGE_COUNT + 3;
         int anyEdgeStateIndex = -1;
