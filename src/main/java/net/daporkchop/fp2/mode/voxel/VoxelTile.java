@@ -47,16 +47,16 @@ public class VoxelTile implements IFarTile {
     //  ^ 16 bits are free
     //2: state
 
-    protected static final int VERTEX_COUNT = T_VOXELS * T_VOXELS * T_VOXELS;
-    protected static final int INDEX_COUNT = VERTEX_COUNT * 6;
+    protected static final int MAX_VERTEX_COUNT = (T_VERTS * T_VERTS * T_VERTS) * 64;
+    protected static final int MAX_INDEX_COUNT = MAX_VERTEX_COUNT * 6;
 
     protected static final int VERTEX_SIZE = 3 * Integer.BYTES;
     protected static final int INDEX_SIZE = Character.BYTES;
 
     protected static final long VERTEX_START = 0L;
-    protected static final long INDEX_START = VERTEX_START + VERTEX_COUNT * VERTEX_SIZE;
+    protected static final long INDEX_START = VERTEX_START + MAX_VERTEX_COUNT * VERTEX_SIZE;
 
-    protected static final long TILE_SIZE = INDEX_START + INDEX_COUNT * INDEX_SIZE;
+    protected static final long TILE_SIZE = INDEX_START + MAX_INDEX_COUNT * INDEX_SIZE;
 
     static void writeVertex(long base, VoxelData data) {
         PUnsafe.putInt(base + 0L, Int2_10_10_10_Rev.packCoords(data.x, data.y, data.z));

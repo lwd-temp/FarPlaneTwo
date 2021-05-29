@@ -124,14 +124,14 @@ public class VoxelBake {
             //step 3: write indices to actually connect the vertices and build the mesh
             writeIndices(srcs[0], map, indices, lowOctree);*/
 
-            writeVertices(srcs[0], verts);
+            writeVertices(srcs[0], verts, buildLowPointOctree(srcs));
             writeIndices(srcs[0], indices);
         } finally {
             MAP_RECYCLER.get().release(map);
         }
     }
 
-    protected void writeVertices(@NonNull VoxelTile tile, @NonNull ByteBuf vertices) {
+    protected void writeVertices(@NonNull VoxelTile tile, @NonNull ByteBuf vertices, PointOctree3I octree) {
         SingleBiomeBlockAccess biomeAccess = new SingleBiomeBlockAccess();
         VoxelData data = new VoxelData();
 
@@ -145,7 +145,18 @@ public class VoxelBake {
             vertices.writeShortLE(Constants.packedLightTo8BitVec2(data.light)); //light
             vertices.writeMediumLE(Constants.convertARGB_ABGR(mc.getBlockColors().colorMultiplier(state, biomeAccess, BlockPos.ORIGIN, 0))); //color
 
-            vertices.writeByte(data.x).writeByte(data.y).writeByte(data.z); //pos_low
+            int x = data.x;
+            int y = data.y;
+            int z = data.z;
+
+            if (x > (POS_ONE << T_SHIFT) || y > (POS_ONE << T_SHIFT) || z > (POS_ONE << T_SHIFT)) {
+                int pos = octree.nearestNeighbor(x, y, z);
+                x = Int2_10_10_10_Rev.unpackX(pos);
+                y = Int2_10_10_10_Rev.unpackY(pos);
+                z = Int2_10_10_10_Rev.unpackZ(pos);
+            }
+
+            vertices.writeByte(x).writeByte(y).writeByte(z); //pos_low
             vertices.writeIntLE(Int2_10_10_10_Rev.packCoords(data.x, data.y, data.z)); //pos_high
         }
     }
@@ -165,6 +176,34 @@ public class VoxelBake {
             IBlockState state = FastRegistry.getBlockState(data.state);
             indices[renderType(state)].writeShortLE(v0).writeShortLE(v1).writeShortLE(v2);
         }
+    }
+
+    protected PointOctree3I buildLowPointOctree(VoxelTile[] srcs) {
+        final VoxelData data = new VoxelData();
+        final IntList lowPoints = new IntArrayList();
+
+        for (int i = 0, tx = 0; tx <= 1; tx++) {
+            for (int ty = 0; ty <= 1; ty++) {
+                for (int tz = 0; tz <= 1; tz++, i++) {
+                    VoxelTile tile = srcs[i];
+                    if (tile == null || i == 0) {
+                        continue;
+                    }
+
+                    for (int j = 0, lim = tile.vertexCount(); j < lim; j++) {
+                        tile.getVertex(j, data);
+
+                        if (data.x >= Int2_10_10_10_Rev.MIN_AXIS_VALUE && data.x <= Int2_10_10_10_Rev.MAX_AXIS_VALUE
+                            && data.y >= Int2_10_10_10_Rev.MIN_AXIS_VALUE && data.y <= Int2_10_10_10_Rev.MAX_AXIS_VALUE
+                            && data.z >= Int2_10_10_10_Rev.MIN_AXIS_VALUE && data.z <= Int2_10_10_10_Rev.MAX_AXIS_VALUE) { //this will only discard a very small minority of vertices
+                            lowPoints.add(Int2_10_10_10_Rev.packCoords(data.x, data.y, data.z));
+                        }
+                    }
+                }
+            }
+        }
+
+        return new PointOctree3I(lowPoints.toIntArray());
     }
 
     /*protected PointOctree3I buildLowPointOctree(VoxelTile[] srcs) {

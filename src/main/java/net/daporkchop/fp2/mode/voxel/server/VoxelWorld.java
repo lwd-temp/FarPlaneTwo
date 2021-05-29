@@ -28,6 +28,7 @@ import net.daporkchop.fp2.mode.common.server.AbstractFarWorld;
 import net.daporkchop.fp2.mode.voxel.VoxelPos;
 import net.daporkchop.fp2.mode.voxel.VoxelTile;
 import net.daporkchop.fp2.mode.voxel.server.scale.VoxelScalerIntersection;
+import net.daporkchop.fp2.mode.voxel.server.scale.VoxelScalerVertexClustering;
 import net.minecraft.nbt.NBTTagCompound;
 import net.minecraft.world.World;
 import net.minecraft.world.WorldServer;
@@ -42,7 +43,7 @@ public abstract class VoxelWorld extends AbstractFarWorld<VoxelPos, VoxelTile> {
 
     @Override
     protected IFarScaler<VoxelPos, VoxelTile> createScaler() {
-        return new VoxelScalerIntersection();
+        return new VoxelScalerVertexClustering();
     }
 
     @Override
