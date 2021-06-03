@@ -59,7 +59,7 @@ public class VoxelTile implements IFarTile {
     protected static final long TILE_SIZE = INDEX_START + MAX_INDEX_COUNT * INDEX_SIZE;
 
     static void writeVertex(long base, VoxelData data) {
-        PUnsafe.putInt(base + 0L, Int2_10_10_10_Rev.packCoords(data.x, data.y, data.z));
+        PUnsafe.putInt(base + 0L, Int2_10_10_10_Rev.packXYZ(data.x, data.y, data.z));
         PUnsafe.putInt(base + 4L, ((data.lowEdge << 19) | (data.highEdge << 16)) | ((data.biome << 8) | data.light));
         PUnsafe.putInt(base + 8L, data.state);
     }

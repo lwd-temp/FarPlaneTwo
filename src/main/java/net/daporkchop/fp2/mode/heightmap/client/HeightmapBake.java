@@ -26,6 +26,10 @@ import lombok.experimental.UtilityClass;
 import net.daporkchop.fp2.client.TexUVs;
 import net.daporkchop.fp2.client.gl.object.IGLBuffer;
 import net.daporkchop.fp2.client.gl.object.VertexArrayObject;
+import net.daporkchop.fp2.client.gl.vertex.IVertexAttribute;
+import net.daporkchop.fp2.client.gl.vertex.VertexAttributeInterpretation;
+import net.daporkchop.fp2.client.gl.vertex.VertexAttributeType;
+import net.daporkchop.fp2.client.gl.vertex.VertexFormat;
 import net.daporkchop.fp2.mode.heightmap.HeightmapData;
 import net.daporkchop.fp2.mode.heightmap.HeightmapPos;
 import net.daporkchop.fp2.mode.heightmap.HeightmapTile;
@@ -36,7 +40,9 @@ import net.minecraft.util.math.BlockPos;
 import java.util.Arrays;
 import java.util.BitSet;
 
+import static java.lang.Math.*;
 import static net.daporkchop.fp2.client.ClientConstants.*;
+import static net.daporkchop.fp2.client.gl.GLCompatibilityHelper.*;
 import static net.daporkchop.fp2.client.gl.OpenGL.*;
 import static net.daporkchop.fp2.mode.heightmap.HeightmapConstants.*;
 import static net.daporkchop.fp2.mode.heightmap.HeightmapTile.*;
@@ -52,36 +58,70 @@ import static org.lwjgl.opengl.GL11.*;
  */
 @UtilityClass
 public class HeightmapBake {
-    public static final int HEIGHTMAP_VERTEX_STATE_OFFSET = 0;
-    public static final int HEIGHTMAP_VERTEX_LIGHT_OFFSET = HEIGHTMAP_VERTEX_STATE_OFFSET + INT_SIZE;
-    public static final int HEIGHTMAP_VERTEX_COLOR_OFFSET = HEIGHTMAP_VERTEX_LIGHT_OFFSET + SHORT_SIZE;
+    protected static final IVertexAttribute.Int1 ATTRIB_STATE = IVertexAttribute.Int1.builder()
+            .alignAndPadTo(EFFECTIVE_VERTEX_ATTRIBUTE_ALIGNMENT)
+            .type(VertexAttributeType.UNSIGNED_INT)
+            .interpretation(VertexAttributeInterpretation.INTEGER)
+            .build();
 
-    public static final int HEIGHTMAP_VERTEX_POS_LOW_OFFSET = HEIGHTMAP_VERTEX_COLOR_OFFSET + MEDIUM_SIZE;
-    public static final int HEIGHTMAP_VERTEX_HEIGHT_INT_LOW_OFFSET = HEIGHTMAP_VERTEX_POS_LOW_OFFSET + SHORT_SIZE;
-    public static final int HEIGHTMAP_VERTEX_HEIGHT_FRAC_LOW_OFFSET = HEIGHTMAP_VERTEX_HEIGHT_INT_LOW_OFFSET + INT_SIZE;
+    protected static final IVertexAttribute.Int2 ATTRIB_LIGHT = IVertexAttribute.Int2.builder(ATTRIB_STATE)
+            .alignAndPadTo(EFFECTIVE_VERTEX_ATTRIBUTE_ALIGNMENT)
+            .type(VertexAttributeType.UNSIGNED_BYTE)
+            .interpretation(VertexAttributeInterpretation.NORMALIZED_FLOAT)
+            .build();
 
-    public static final int HEIGHTMAP_VERTEX_POS_HIGH_OFFSET = HEIGHTMAP_VERTEX_HEIGHT_FRAC_LOW_OFFSET + BYTE_SIZE;
-    public static final int HEIGHTMAP_VERTEX_HEIGHT_INT_HIGH_OFFSET = HEIGHTMAP_VERTEX_POS_HIGH_OFFSET + SHORT_SIZE;
-    public static final int HEIGHTMAP_VERTEX_HEIGHT_FRAC_HIGH_OFFSET = HEIGHTMAP_VERTEX_HEIGHT_INT_HIGH_OFFSET + INT_SIZE;
+    protected static final IVertexAttribute.Int3 ATTRIB_COLOR = IVertexAttribute.Int3.builder(ATTRIB_LIGHT)
+            .alignAndPadTo(EFFECTIVE_VERTEX_ATTRIBUTE_ALIGNMENT)
+            .reportedComponents(4)
+            .type(VertexAttributeType.UNSIGNED_BYTE)
+            .interpretation(VertexAttributeInterpretation.NORMALIZED_FLOAT)
+            .build();
 
-    public static final int HEIGHTMAP_VERTEX_SIZE = HEIGHTMAP_VERTEX_HEIGHT_FRAC_HIGH_OFFSET + BYTE_SIZE + 1; // +1 to pad to 24 bytes
+    protected static final IVertexAttribute.Int2 ATTRIB_POS_LOW = IVertexAttribute.Int2.builder(ATTRIB_COLOR)
+            .alignAndPadTo(EFFECTIVE_VERTEX_ATTRIBUTE_ALIGNMENT)
+            .type(VertexAttributeType.UNSIGNED_BYTE)
+            .interpretation(VertexAttributeInterpretation.INTEGER)
+            .build();
+
+    protected static final IVertexAttribute.Int1 ATTRIB_HEIGHT_INT_LOW = IVertexAttribute.Int1.builder(ATTRIB_POS_LOW)
+            .alignAndPadTo(EFFECTIVE_VERTEX_ATTRIBUTE_ALIGNMENT)
+            .type(VertexAttributeType.INT)
+            .interpretation(VertexAttributeInterpretation.INTEGER)
+            .build();
+
+    protected static final IVertexAttribute.Int1 ATTRIB_HEIGHT_FRAC_LOW = IVertexAttribute.Int1.builder(ATTRIB_HEIGHT_INT_LOW)
+            .alignAndPadTo(EFFECTIVE_VERTEX_ATTRIBUTE_ALIGNMENT)
+            .type(VertexAttributeType.UNSIGNED_BYTE)
+            .interpretation(VertexAttributeInterpretation.FLOAT)
+            .build();
+
+    protected static final IVertexAttribute.Int2 ATTRIB_POS_HIGH = IVertexAttribute.Int2.builder(ATTRIB_HEIGHT_FRAC_LOW)
+            .alignAndPadTo(EFFECTIVE_VERTEX_ATTRIBUTE_ALIGNMENT)
+            .type(VertexAttributeType.UNSIGNED_BYTE)
+            .interpretation(VertexAttributeInterpretation.INTEGER)
+            .build();
+
+    protected static final IVertexAttribute.Int1 ATTRIB_HEIGHT_INT_HIGH = IVertexAttribute.Int1.builder(ATTRIB_POS_HIGH)
+            .alignAndPadTo(EFFECTIVE_VERTEX_ATTRIBUTE_ALIGNMENT)
+            .type(VertexAttributeType.INT)
+            .interpretation(VertexAttributeInterpretation.INTEGER)
+            .build();
+
+    protected static final IVertexAttribute.Int1 ATTRIB_HEIGHT_FRAC_HIGH = IVertexAttribute.Int1.builder(ATTRIB_HEIGHT_INT_HIGH)
+            .alignAndPadTo(EFFECTIVE_VERTEX_ATTRIBUTE_ALIGNMENT)
+            .type(VertexAttributeType.UNSIGNED_BYTE)
+            .interpretation(VertexAttributeInterpretation.FLOAT)
+            .build();
+
+    protected static final VertexFormat VERTEX_FORMAT = new VertexFormat(ATTRIB_HEIGHT_FRAC_HIGH, max(EFFECTIVE_VERTEX_ATTRIBUTE_ALIGNMENT, INT_SIZE));
 
     protected static int vertexMapIndex(int x, int z, int layer) {
         return (x * T_VERTS + z) * MAX_LAYERS + layer;
     }
 
     public void vertexAttributes(@NonNull IGLBuffer buffer, @NonNull VertexArrayObject vao) {
-        vao.attrI(buffer, 1, GL_UNSIGNED_INT, HEIGHTMAP_VERTEX_SIZE, HEIGHTMAP_VERTEX_STATE_OFFSET, 0); //state
-        vao.attrF(buffer, 2, GL_UNSIGNED_BYTE, true, HEIGHTMAP_VERTEX_SIZE, HEIGHTMAP_VERTEX_LIGHT_OFFSET, 0); //light
-        vao.attrF(buffer, 4, GL_UNSIGNED_BYTE, true, HEIGHTMAP_VERTEX_SIZE, HEIGHTMAP_VERTEX_COLOR_OFFSET, 0); //color
-
-        vao.attrI(buffer, 2, GL_UNSIGNED_BYTE, HEIGHTMAP_VERTEX_SIZE, HEIGHTMAP_VERTEX_POS_LOW_OFFSET, 0); //pos_low
-        vao.attrI(buffer, 1, GL_INT, HEIGHTMAP_VERTEX_SIZE, HEIGHTMAP_VERTEX_HEIGHT_INT_LOW_OFFSET, 0); //height_int_low
-        vao.attrF(buffer, 1, GL_UNSIGNED_BYTE, false, HEIGHTMAP_VERTEX_SIZE, HEIGHTMAP_VERTEX_HEIGHT_FRAC_LOW_OFFSET, 0); //height_frac_low
-
-        vao.attrI(buffer, 2, GL_UNSIGNED_BYTE, HEIGHTMAP_VERTEX_SIZE, HEIGHTMAP_VERTEX_POS_HIGH_OFFSET, 0); //pos_high
-        vao.attrI(buffer, 1, GL_INT, HEIGHTMAP_VERTEX_SIZE, HEIGHTMAP_VERTEX_HEIGHT_INT_HIGH_OFFSET, 0); //height_int_high
-        vao.attrF(buffer, 1, GL_UNSIGNED_BYTE, false, HEIGHTMAP_VERTEX_SIZE, HEIGHTMAP_VERTEX_HEIGHT_FRAC_HIGH_OFFSET, 0); //height_frac_high
+        FP2_LOG.info("heightmap vertex size: {} bytes", VERTEX_FORMAT.size());
+        VERTEX_FORMAT.configureVAO(vao, buffer);
     }
 
     public void bakeForShaderDraw(@NonNull HeightmapPos dstPos, @NonNull HeightmapTile[] srcs, @NonNull ByteBuf verts, @NonNull ByteBuf[] indices) {
@@ -200,13 +240,18 @@ public class HeightmapBake {
         pos.setPos(blockX, data.height_int, blockZ);
         biomeAccess.biome(data.biome);
 
-        //block
-        out.writeIntLE(TexUVs.STATEID_TO_INDEXID.get(data.state)); //state
-        out.writeShortLE(Constants.packedLightTo8BitVec2(data.light)); //light
-        out.writeMediumLE(Constants.convertARGB_ABGR(mc.getBlockColors().colorMultiplier(data.state, biomeAccess, pos, 0))); //color
+        int vertexBase = VERTEX_FORMAT.appendVertex(out);
 
-        //pos_low
-        out.writeByte(x).writeByte(z).writeIntLE(data.height_int).writeByte(data.height_frac);
+        ATTRIB_STATE.set(out, vertexBase, TexUVs.STATEID_TO_INDEXID.get(data.state));
+
+        int blockLight = data.light & 0xF;
+        int skyLight = data.light >> 4;
+        ATTRIB_LIGHT.set(out, vertexBase, blockLight | (blockLight << 4), skyLight | (skyLight << 4));
+        ATTRIB_COLOR.setRGB(out, vertexBase, mc.getBlockColors().colorMultiplier(data.state, biomeAccess, pos, 0));
+
+        ATTRIB_POS_LOW.set(out, vertexBase, x, z);
+        ATTRIB_HEIGHT_INT_LOW.set(out, vertexBase, data.height_int);
+        ATTRIB_HEIGHT_FRAC_LOW.set(out, vertexBase, data.height_frac);
 
         //pos_high
         int baseTileX = (baseX >> (level + T_SHIFT)) - (i >> 1);
@@ -216,13 +261,15 @@ public class HeightmapBake {
         final int flooredZ = blockZ & -(1 << (level + 1));
         double highHeight;
         if (highTile == null || Double.isNaN(highHeight = highTile.getLayerOnlyHeight((flooredX >> (level + 1)) & T_MASK, (flooredZ >> (level + 1)) & T_MASK, layer))) {
-            out.writeByte(x).writeByte(z).writeIntLE(data.height_int).writeByte(data.height_frac);
+            ATTRIB_POS_HIGH.set(out, vertexBase, x, z);
+            ATTRIB_HEIGHT_INT_HIGH.set(out, vertexBase, data.height_int);
+            ATTRIB_HEIGHT_FRAC_HIGH.set(out, vertexBase, data.height_frac);
         } else {
             int heightI = floorI(highHeight);
             int heightF = clamp(floorI((highHeight - heightI) * 256.0d), 0, 255);
-            out.writeByte(x & ~1).writeByte(z & ~1).writeIntLE(heightI).writeByte(heightF);
+            ATTRIB_POS_HIGH.set(out, vertexBase, x & ~1, z & ~1);
+            ATTRIB_HEIGHT_INT_HIGH.set(out, vertexBase, floorI(highHeight));
+            ATTRIB_HEIGHT_FRAC_HIGH.set(out, vertexBase, heightF);
         }
-
-        out.writeByte(0); //pad to 24 bytes
     }
 }
