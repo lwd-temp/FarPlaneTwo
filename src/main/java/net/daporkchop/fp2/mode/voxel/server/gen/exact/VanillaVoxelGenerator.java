@@ -21,13 +21,15 @@
 package net.daporkchop.fp2.mode.voxel.server.gen.exact;
 
 import lombok.NonNull;
-import net.daporkchop.fp2.mode.voxel.VoxelPos;
 import net.daporkchop.fp2.compat.vanilla.IBlockHeightAccess;
+import net.daporkchop.fp2.mode.voxel.VoxelPos;
 import net.minecraft.util.math.ChunkPos;
 import net.minecraft.util.math.Vec3i;
 import net.minecraft.world.WorldServer;
 
 import java.util.stream.Stream;
+
+import static net.daporkchop.fp2.util.math.MathUtil.*;
 
 /**
  * @author DaPorkchop_
@@ -39,11 +41,13 @@ public class VanillaVoxelGenerator extends AbstractExactVoxelGenerator {
 
     @Override
     public Stream<ChunkPos> neededColumns(@NonNull VoxelPos pos) {
-        return Stream.of(
-                new ChunkPos(pos.x(), pos.z()),
-                new ChunkPos(pos.x(), pos.z() + 1),
-                new ChunkPos(pos.x() + 1, pos.z()),
-                new ChunkPos(pos.x() + 1, pos.z() + 1));
+        ChunkPos[] arr = new ChunkPos[sq(MAX_CUBE - MIN_CUBE + 1)];
+        for (int i = 0, dx = MIN_CUBE; dx <= MAX_CUBE; dx++) {
+            for (int dz = MIN_CUBE; dz <= MAX_CUBE; dz++) {
+                arr[i++] = new ChunkPos(pos.x() + dx, pos.z() + dz);
+            }
+        }
+        return Stream.of(arr);
     }
 
     @Override

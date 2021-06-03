@@ -29,6 +29,8 @@ import net.minecraft.world.WorldServer;
 
 import java.util.stream.Stream;
 
+import static net.daporkchop.fp2.util.math.MathUtil.*;
+
 /**
  * @author DaPorkchop_
  */
@@ -44,10 +46,10 @@ public class CCVoxelGenerator extends AbstractExactVoxelGenerator {
 
     @Override
     public Stream<Vec3i> neededCubes(@NonNull IBlockHeightAccess world, @NonNull VoxelPos pos) {
-        Vec3i[] arr = new Vec3i[8];
-        for (int i = 0, dx = 0; dx < 2; dx++) {
-            for (int dy = 0; dy < 2; dy++) {
-                for (int dz = 0; dz < 2; dz++) {
+        Vec3i[] arr = new Vec3i[cb(MAX_CUBE - MIN_CUBE + 1)];
+        for (int i = 0, dx = MIN_CUBE; dx <= MAX_CUBE; dx++) {
+            for (int dy = MIN_CUBE; dy <= MAX_CUBE; dy++) {
+                for (int dz = MIN_CUBE; dz <= MAX_CUBE; dz++) {
                     arr[i++] = new Vec3i(pos.x() + dx, pos.y() + dy, pos.z() + dz);
                 }
             }

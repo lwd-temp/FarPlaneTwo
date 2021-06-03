@@ -24,7 +24,6 @@ import lombok.NonNull;
 import net.daporkchop.fp2.compat.vanilla.FastRegistry;
 import net.daporkchop.fp2.compat.vanilla.IBlockHeightAccess;
 import net.daporkchop.fp2.mode.api.server.gen.IFarGeneratorExact;
-import net.daporkchop.fp2.mode.common.server.gen.AbstractFarGenerator;
 import net.daporkchop.fp2.mode.voxel.VoxelData;
 import net.daporkchop.fp2.mode.voxel.VoxelPos;
 import net.daporkchop.fp2.mode.voxel.VoxelTile;
@@ -49,6 +48,11 @@ import static net.daporkchop.lib.common.util.PValidation.*;
  * @author DaPorkchop_
  */
 public abstract class AbstractExactVoxelGenerator extends AbstractVoxelGenerator implements IFarGeneratorExact<VoxelPos, VoxelTile> {
+    protected static final int CACHE_OFFSET = -1;
+
+    protected static final int MIN_CUBE = (CACHE_MIN + CACHE_OFFSET) >> 4;
+    protected static final int MAX_CUBE = (CACHE_MAX + CACHE_OFFSET) >> 4;
+
     protected final Ref<int[]> stateMapCache = ThreadRef.soft(() -> new int[cb(CACHE_SIZE)]);
 
     public AbstractExactVoxelGenerator(@NonNull WorldServer world) {
@@ -88,9 +92,9 @@ public abstract class AbstractExactVoxelGenerator extends AbstractVoxelGenerator
 
     @Override
     public void generate(@NonNull IBlockHeightAccess world, @NonNull VoxelPos posIn, @NonNull VoxelTile tile) {
-        final int baseX = posIn.blockX();
-        final int baseY = posIn.blockY();
-        final int baseZ = posIn.blockZ();
+        final int baseX = posIn.blockX() + CACHE_OFFSET;
+        final int baseY = posIn.blockY() + CACHE_OFFSET;
+        final int baseZ = posIn.blockZ() + CACHE_OFFSET;
 
         int[] stateMap = this.populateStateMapFromWorld(world, baseX, baseY, baseZ);
         //use bit flags to identify voxel types rather than reading from the world each time to keep innermost loop head tight and cache-friendly
@@ -181,9 +185,9 @@ public abstract class AbstractExactVoxelGenerator extends AbstractVoxelGenerator
                     }
                     data.light = Constants.packCombinedLight(skyLight << 20 | blockLight << 4);
 
-                    data.x = (dx + 1) << POS_FRACT_SHIFT;
-                    data.y = (dy + 1) << POS_FRACT_SHIFT;
-                    data.z = (dz + 1) << POS_FRACT_SHIFT;
+                    data.x = dx << POS_FRACT_SHIFT;
+                    data.y = dy << POS_FRACT_SHIFT;
+                    data.z = dz << POS_FRACT_SHIFT;
 
                     assembler.setEdgesAndVertices(tile, dx, dy, dz, edges, data, tmpStates);
                 }

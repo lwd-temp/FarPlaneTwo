@@ -102,6 +102,10 @@ public class VoxelTile implements IFarTile {
         readVertex(this.addr + VERTEX_START + (long) checkIndex(this.vertexCount, index) * VERTEX_SIZE, data);
     }
 
+    public void setVertex(int index, VoxelData data) {
+        writeVertex(this.addr + VERTEX_START + (long) checkIndex(this.vertexCount, index) * VERTEX_SIZE, data);
+    }
+
     public int appendVertex(VoxelData data) {
         int vertexIndex = this.vertexCount++;
         writeVertex(this.addr + VERTEX_START + (long) vertexIndex * VERTEX_SIZE, data);
