@@ -90,7 +90,7 @@ public class FarServerWorker<POS extends IFarPos, T extends IFarTile> implements
     //
 
     public Compressed<POS, T> roughGetTile(PriorityTask<POS> root, POS pos) {
-        if (!(FP2_DEBUG && FP2Config.debug.disableExactGeneration) && this.world.anyVanillaTerrainExistsAt(pos) && (pos.hashCode() & 1) == 0) {
+        if (!(FP2_DEBUG && FP2Config.debug.disableExactGeneration) && this.world.anyVanillaTerrainExistsAt(pos)) {
             //there's some terrain at the given position, let's try to generate something with it
             if (pos.level() == 0) {
                 //the position is at detail level 0, do exact generation
@@ -211,8 +211,6 @@ public class FarServerWorker<POS extends IFarPos, T extends IFarTile> implements
         try {
             if (FP2_DEBUG && FP2Config.debug.disableExactGeneration) { //updates will always use the exact generator, so don't use them
                 return;
-            } else if (true) {
-                return; //TODO: remove this debug code
             }
 
             this.updateTile(root, pos, newTimestamp);

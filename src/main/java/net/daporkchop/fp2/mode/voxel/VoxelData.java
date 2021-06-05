@@ -20,10 +20,6 @@
 
 package net.daporkchop.fp2.mode.voxel;
 
-import lombok.NonNull;
-
-import static net.daporkchop.fp2.util.math.MathUtil.*;
-
 /**
  * Represents a single data sample contained in a voxel tile.
  *
@@ -57,19 +53,5 @@ public class VoxelData {
         this.light = 0;
         this.state = 0;
         return this;
-    }
-
-    public void offsetMask(int mask, int factor) {
-        this.offset(factor & (mask << 29 >> 31), factor & (mask << 30 >> 31), factor & (mask << 31 >> 31));
-    }
-
-    public void offset(int dx, int dy, int dz) {
-        this.x += dx;
-        this.y += dy;
-        this.z += dz;
-    }
-
-    public int distanceSq(@NonNull VoxelData other) {
-        return sq(this.x - other.x) + sq(this.y - other.y) + sq(this.z - other.z);
     }
 }

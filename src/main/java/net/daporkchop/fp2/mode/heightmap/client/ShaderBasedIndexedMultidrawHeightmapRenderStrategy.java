@@ -22,16 +22,11 @@ package net.daporkchop.fp2.mode.heightmap.client;
 
 import lombok.NonNull;
 import net.daporkchop.fp2.client.DrawMode;
-import net.daporkchop.fp2.client.TexUVs;
-import net.daporkchop.fp2.client.gl.shader.ShaderProgram;
-import net.minecraft.block.Block;
 import net.minecraft.client.renderer.texture.AbstractTexture;
 import net.minecraft.client.renderer.texture.TextureMap;
-import net.minecraft.init.Blocks;
 import net.minecraft.util.BlockRenderLayer;
 
 import static net.daporkchop.fp2.client.ClientConstants.*;
-import static org.lwjgl.opengl.GL20.*;
 
 /**
  * @author DaPorkchop_

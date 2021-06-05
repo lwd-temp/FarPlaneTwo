@@ -49,7 +49,7 @@ public class VoxelScalerVertexClustering implements IFarScaler<VoxelPos, VoxelTi
     //protected static final int SRC_MIN = -4;
     //protected static final int SRC_MAX = (T_VOXELS << 1) + 4;
     protected static final int SRC_MIN = 0;
-    protected static final int SRC_MAX = (T_VOXELS + 2) << 1;
+    protected static final int SRC_MAX = T_VOXELS << 1;
     protected static final int SRC_SIZE = SRC_MAX - SRC_MIN;
 
     protected static final int SRC_TILE_MIN = SRC_MIN >> T_SHIFT;
@@ -63,7 +63,7 @@ public class VoxelScalerVertexClustering implements IFarScaler<VoxelPos, VoxelTi
     protected static boolean outOfBounds(VoxelData data) {
         final int min = SRC_MIN << POS_FRACT_SHIFT >> 1;
         final int max = SRC_MAX << POS_FRACT_SHIFT >> 1;
-        return data.x < min || data.x > max || data.y < min || data.y > max || data.z < min || data.z > max;
+        return ((SRC_MAX | SRC_MAX) & T_MASK) != 0 && (data.x < min || data.x > max || data.y < min || data.y > max || data.z < min || data.z > max);
     }
 
     @Override
