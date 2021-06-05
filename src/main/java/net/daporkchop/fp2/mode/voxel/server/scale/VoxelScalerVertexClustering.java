@@ -131,19 +131,6 @@ public class VoxelScalerVertexClustering implements IFarScaler<VoxelPos, VoxelTi
                         data1.highEdge &= mask;
                         data2.highEdge &= mask;
 
-                        /*if ((tx & 3) == tx && (ty & 3) == ty && (tz & 3) == tz) {
-                            int mask = ((tx >> 1) << 2) | ((ty >> 1) << 1) | (tz >> 1);
-                            data0.lowEdge &= ~mask;
-                            data1.lowEdge &= ~mask;
-                            data2.lowEdge &= ~mask;
-                            data0.highEdge &= mask;
-                            data1.highEdge &= mask;
-                            data2.highEdge &= mask;
-                        } else {
-                            data0.lowEdge = data1.lowEdge = data2.lowEdge = 0;
-                            data0.highEdge = data1.highEdge = data2.highEdge = 7;
-                        }*/
-
                         if (outOfBounds(data0) && outOfBounds(data1) && outOfBounds(data2)) {
                             continue;
                         }
@@ -175,13 +162,15 @@ public class VoxelScalerVertexClustering implements IFarScaler<VoxelPos, VoxelTi
 
         //build mesh (this is not only slow, but also generates a hilariously bad mesh)
         for (ExtraVoxelData data : srcVerts) {
-            List<BoundedVoxelData> datas = bvh.intersecting(new Vec3d(data.x, data.y, data.z));
-            checkState(!datas.isEmpty());
+            if ((data.lowEdge | data.highEdge) == 0) {
+                List<BoundedVoxelData> datas = bvh.intersecting(new Vec3d(data.x, data.y, data.z));
+                checkState(!datas.isEmpty());
 
-            VoxelData position = datas.get(0).data;
-            data.x = position.x;
-            data.y = position.y;
-            data.z = position.z;
+                VoxelData position = datas.get(0).data;
+                data.x = position.x;
+                data.y = position.y;
+                data.z = position.z;
+            }
 
             dst.appendIndex(dst.appendVertex(data));
         }
