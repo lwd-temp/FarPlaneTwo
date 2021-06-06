@@ -173,8 +173,6 @@ public class VoxelBake {
                 data.x = Int2_10_10_10_Rev.unpackX(lowPos);
                 data.y = Int2_10_10_10_Rev.unpackY(lowPos);
                 data.z = Int2_10_10_10_Rev.unpackZ(lowPos);
-
-                tile.setVertex(i, data);
             }
 
             ATTRIB_POS_LOW.setInt2_10_10_10_rev(vertices, vertexBase, lowPos);
@@ -259,9 +257,9 @@ public class VoxelBake {
                         int py = (ty << (T_SHIFT + POS_FRACT_SHIFT)) + (data.y << 1) + offY;
                         int pz = (tz << (T_SHIFT + POS_FRACT_SHIFT)) + (data.z << 1) + offZ;
 
-                        if (px >= Int2_10_10_10_Rev.MIN_XYZ_VALUE && px <= Int2_10_10_10_Rev.MIN_XYZ_VALUE
-                            && py >= Int2_10_10_10_Rev.MIN_XYZ_VALUE && py <= Int2_10_10_10_Rev.MIN_XYZ_VALUE
-                            && pz >= Int2_10_10_10_Rev.MIN_XYZ_VALUE && pz <= Int2_10_10_10_Rev.MIN_XYZ_VALUE) { //this will only discard a very small minority of vertices
+                        if (px >= Int2_10_10_10_Rev.MIN_XYZ_VALUE && px <= Int2_10_10_10_Rev.MAX_XYZ_VALUE
+                            && py >= Int2_10_10_10_Rev.MIN_XYZ_VALUE && py <= Int2_10_10_10_Rev.MAX_XYZ_VALUE
+                            && pz >= Int2_10_10_10_Rev.MIN_XYZ_VALUE && pz <= Int2_10_10_10_Rev.MAX_XYZ_VALUE) { //this will only discard a very small minority of vertices
                             highPoints.add(Int2_10_10_10_Rev.packXYZ(px, py, pz));
                         }
                     }

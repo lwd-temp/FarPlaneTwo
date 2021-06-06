@@ -46,8 +46,6 @@ import static net.daporkchop.lib.common.util.PValidation.*;
  * @see <a href="https://www.researchgate.net/publication/220792145_Model_Simplification_Using_Vertex-Clustering">this paper</a>
  */
 public class VoxelScalerVertexClustering implements IFarScaler<VoxelPos, VoxelTile> {
-    //protected static final int SRC_MIN = -4;
-    //protected static final int SRC_MAX = (T_VOXELS << 1) + 4;
     protected static final int SRC_MIN = 0;
     protected static final int SRC_MAX = T_VOXELS << 1;
     protected static final int SRC_SIZE = SRC_MAX - SRC_MIN;
@@ -153,26 +151,30 @@ public class VoxelScalerVertexClustering implements IFarScaler<VoxelPos, VoxelTi
 
         //build BVH of intersected tiles
         WritableBVH<BoundedVoxelData> bvh = new WritableBVH<>();
+        OUTER_LOOP:
         for (ExtraVoxelData data : srcVertsSorted) {
-            List<BoundedVoxelData> datas = bvh.intersecting(new Vec3d(data.x, data.y, data.z));
-            if (datas.isEmpty()) {
-                bvh.add(new BoundedVoxelData(data));
+            for (BoundedVoxelData boundedData : bvh.intersecting(new Vec3d(data.x, data.y, data.z))) {
+                if (((boundedData.data.lowEdge << EDGE_COUNT) | boundedData.data.highEdge) == ((data.lowEdge << EDGE_COUNT) | data.highEdge)) {
+                    if (boundedData.data.state == 0 && data.state != 0) {
+                        boundedData.data.state = data.state;
+                        dst.setVertex(boundedData.idx, boundedData.data);
+                    }
+                    continue OUTER_LOOP;
+                }
             }
+            bvh.add(new BoundedVoxelData(data, dst.appendVertex(data)));
         }
 
-        //build mesh (this is not only slow, but also generates a hilariously bad mesh)
+        //build mesh
+        //TODO: avoid emitting duplicate triangles
+        OUTER_LOOP:
         for (ExtraVoxelData data : srcVerts) {
-            if ((data.lowEdge | data.highEdge) == 0) {
-                List<BoundedVoxelData> datas = bvh.intersecting(new Vec3d(data.x, data.y, data.z));
-                checkState(!datas.isEmpty());
-
-                VoxelData position = datas.get(0).data;
-                data.x = position.x;
-                data.y = position.y;
-                data.z = position.z;
+            for (BoundedVoxelData boundedData : bvh.intersecting(new Vec3d(data.x, data.y, data.z))) {
+                if (((boundedData.data.lowEdge << EDGE_COUNT) | boundedData.data.highEdge) == ((data.lowEdge << EDGE_COUNT) | data.highEdge)) {
+                    dst.appendIndex(boundedData.idx);
+                    continue OUTER_LOOP;
+                }
             }
-
-            dst.appendIndex(dst.appendVertex(data));
         }
 
         return 0L;
@@ -194,14 +196,19 @@ public class VoxelScalerVertexClustering implements IFarScaler<VoxelPos, VoxelTi
 
     protected static class BoundedVoxelData extends AxisAlignedBB {
         protected final VoxelData data = new VoxelData();
+        protected final int idx;
 
-        public BoundedVoxelData(ExtraVoxelData data) {
+        public BoundedVoxelData(ExtraVoxelData data, int idx) {
             super(data.x - (1 << POS_FRACT_SHIFT) + 1, data.y - (1 << POS_FRACT_SHIFT) + 1, data.z - (1 << POS_FRACT_SHIFT) + 1,
                     data.x + (1 << POS_FRACT_SHIFT) - 1, data.y + (1 << POS_FRACT_SHIFT) - 1, data.z + (1 << POS_FRACT_SHIFT) - 1);
+
+            this.idx = idx;
 
             this.data.x = data.x;
             this.data.y = data.y;
             this.data.z = data.z;
+            this.data.lowEdge = data.lowEdge;
+            this.data.highEdge = data.highEdge;
             this.data.state = data.state;
             this.data.light = data.light;
             this.data.biome = data.biome;

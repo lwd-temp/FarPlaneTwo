@@ -38,6 +38,13 @@ public final class WritableBVH<T extends AxisAlignedBB> implements Iterable<T> {
     protected final List<T> values = new ArrayList<>();
 
     /**
+     * @return the number of values in the BVH
+     */
+    public int size() {
+        return this.values.size();
+    }
+
+    /**
      * Adds the given bounding box to the BVH.
      *
      * @param value the bounding box to add
