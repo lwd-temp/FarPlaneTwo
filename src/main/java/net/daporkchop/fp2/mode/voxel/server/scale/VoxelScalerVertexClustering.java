@@ -20,6 +20,9 @@
 
 package net.daporkchop.fp2.mode.voxel.server.scale;
 
+import it.unimi.dsi.fastutil.Hash;
+import it.unimi.dsi.fastutil.objects.ObjectOpenCustomHashSet;
+import it.unimi.dsi.fastutil.objects.ObjectSet;
 import lombok.NonNull;
 import net.daporkchop.fp2.mode.api.server.gen.IFarScaler;
 import net.daporkchop.fp2.mode.voxel.VoxelData;
@@ -62,6 +65,15 @@ public class VoxelScalerVertexClustering implements IFarScaler<VoxelPos, VoxelTi
         final int min = SRC_MIN << POS_FRACT_SHIFT >> 1;
         final int max = SRC_MAX << POS_FRACT_SHIFT >> 1;
         return ((SRC_MAX | SRC_MAX) & T_MASK) != 0 && (data.x < min || data.x > max || data.y < min || data.y > max || data.z < min || data.z > max);
+    }
+
+    protected static BoundedVoxelData findBoundedVoxelData(@NonNull WritableBVH<BoundedVoxelData> bvh, @NonNull VoxelData data) {
+        for (BoundedVoxelData boundedData : bvh.intersecting(new Vec3d(data.x, data.y, data.z))) {
+            if (((boundedData.data.lowEdge << EDGE_COUNT) | boundedData.data.highEdge) == ((data.lowEdge << EDGE_COUNT) | data.highEdge)) {
+                return boundedData;
+            }
+        }
+        throw new IllegalStateException();
     }
 
     @Override
@@ -165,16 +177,42 @@ public class VoxelScalerVertexClustering implements IFarScaler<VoxelPos, VoxelTi
             bvh.add(new BoundedVoxelData(data, dst.appendVertex(data)));
         }
 
-        //build mesh
-        //TODO: avoid emitting duplicate triangles
-        OUTER_LOOP:
-        for (ExtraVoxelData data : srcVerts) {
-            for (BoundedVoxelData boundedData : bvh.intersecting(new Vec3d(data.x, data.y, data.z))) {
-                if (((boundedData.data.lowEdge << EDGE_COUNT) | boundedData.data.highEdge) == ((data.lowEdge << EDGE_COUNT) | data.highEdge)) {
-                    dst.appendIndex(boundedData.idx);
-                    continue OUTER_LOOP;
-                }
+        //TODO: the following code *should* prevent duplicate triangles from being emitted, but doesn't seem to work quite right...
+
+        ObjectSet<int[]> distinctIndices = new ObjectOpenCustomHashSet<>(new Hash.Strategy<int[]>() {
+            @Override
+            public int hashCode(int[] o) {
+                checkArg(o.length == 3);
+                return o[0] + o[1] + o[2];
             }
+
+            @Override
+            public boolean equals(int[] a, int[] b) {
+                if (b == null) {
+                    return false;
+                }
+                checkArg(a.length == 3 && b.length == 3);
+
+                //order-independent equals
+                //(this would be really cool to implement in SIMD)
+                return (a[0] == b[0] && a[1] == b[1] && a[2] == b[2])
+                       || (a[1] == b[0] && a[2] == b[1] && a[0] == b[2])
+                       || (a[2] == b[0] && a[0] == b[1] && a[1] == b[2]);
+            }
+        });
+
+        //find best voxels to round to, and add to set to ensure they aren't duplicated
+        for (int i = 0, lim = srcVerts.size(); i < lim; ) {
+            distinctIndices.add(new int[]{
+                    findBoundedVoxelData(bvh, srcVerts.get(i++)).idx,
+                    findBoundedVoxelData(bvh, srcVerts.get(i++)).idx,
+                    findBoundedVoxelData(bvh, srcVerts.get(i++)).idx
+            });
+        }
+
+        //write indices to output tile
+        for (int[] triangle : distinctIndices) {
+            dst.appendTriangle(triangle[0], triangle[1], triangle[2]);
         }
 
         return 0L;
@@ -182,7 +220,7 @@ public class VoxelScalerVertexClustering implements IFarScaler<VoxelPos, VoxelTi
 
     protected static class ExtraVoxelData extends VoxelData {
         public double weight;
-        
+
         public void calcWeight(VoxelData d1, VoxelData d2) {
             double x1 = this.x - d1.x;
             double y1 = this.y - d1.y;

@@ -98,22 +98,36 @@ public class VoxelTile implements IFarTile {
      * @param index  the index of the voxel to get
      * @param data the {@link VoxelData} instance to store the data into
      */
-    public void getVertex(int index, VoxelData data) {
+    public void getVertex(int index, @NonNull VoxelData data) {
         readVertex(this.addr + VERTEX_START + (long) checkIndex(this.vertexCount, index) * VERTEX_SIZE, data);
     }
 
-    public void setVertex(int index, VoxelData data) {
+    public void setVertex(int index, @NonNull VoxelData data) {
         writeVertex(this.addr + VERTEX_START + (long) checkIndex(this.vertexCount, index) * VERTEX_SIZE, data);
     }
 
-    public int appendVertex(VoxelData data) {
+    public int appendVertex(@NonNull VoxelData data) {
         int vertexIndex = this.vertexCount++;
         writeVertex(this.addr + VERTEX_START + (long) vertexIndex * VERTEX_SIZE, data);
         return vertexIndex;
     }
 
+    public int triangleCount() {
+        return this.indexCount / 3;
+    }
+
     public int getIndex(int index) {
         return PUnsafe.getChar(this.addr + INDEX_START + (long) checkIndex(this.indexCount, index) * INDEX_SIZE);
+    }
+
+    public void getTriangle(int index, @NonNull int[] dst) {
+        checkArg(dst.length >= 3, "destination array length (%d) must be at least 3!", dst.length);
+        checkIndex(index >= 0 && index * 3 < this.indexCount, "total: 0-%d, index: %d*3=%d", this.indexCount, index, index * 3);
+
+        long addr = this.addr + INDEX_START + (long) (index * 3) * INDEX_SIZE;
+        dst[0] = PUnsafe.getChar(addr + 0L * INDEX_SIZE);
+        dst[1] = PUnsafe.getChar(addr + 1L * INDEX_SIZE);
+        dst[2] = PUnsafe.getChar(addr + 2L * INDEX_SIZE);
     }
 
     public VoxelTile appendIndex(int index) {
@@ -188,6 +202,8 @@ public class VoxelTile implements IFarTile {
         if ((this.vertexCount | this.indexCount) == 0) { //tile is empty, nothing needs to be encoded
             return true;
         }
+
+        checkState(this.indexCount % 3 == 0, "indexCount (%d) is not a multiple of 3!", this.indexCount);
 
         dst.ensureWritable(Integer.BYTES + this.vertexCount * VERTEX_SIZE + Integer.BYTES + this.indexCount * INDEX_SIZE);
 
