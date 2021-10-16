@@ -40,6 +40,7 @@ import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
+import org.spongepowered.asm.mixin.injection.Slice;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
@@ -85,13 +86,36 @@ public abstract class MixinRenderGlobal implements IMixinRenderGlobal {
     }
 
     @Inject(method = "Lnet/minecraft/client/renderer/RenderGlobal;setupTerrain(Lnet/minecraft/entity/Entity;DLnet/minecraft/client/renderer/culling/ICamera;IZ)V",
-            at = @At("HEAD"))
-    private void fp2_setupTerrain_prepare(Entity viewEntity, double partialTicks, ICamera camera, int frameCount, boolean playerSpectator, CallbackInfo ci) {
+            at = @At(value = "INVOKE",
+                    target = "Lnet/minecraft/profiler/Profiler;endSection()V",
+                    shift = At.Shift.AFTER),
+            slice = @Slice(
+                    from = @At(
+                            value = "CONSTANT:ONE",
+                            args = "stringValue=iteration"),
+                    to = @At(
+                            value = "CONSTANT:ONE",
+                            args = "stringValue=captureFrustum")),
+            allow = 1, require = 1)
+    private void fp2_setupTerrain_updateVanillaRenderabilityTracker(Entity viewEntity, double partialTicks, ICamera camera, int frameCount, boolean playerSpectator, CallbackInfo ci) {
+        this.mc.profiler.startSection("fp2_vanillaRenderabilityTracker");
+        this.vanillaRenderabilityTracker.update(uncheckedCast(this), (IFrustum) camera, frameCount);
+        this.mc.profiler.endSection();
+    }
+
+    @Inject(method = "Lnet/minecraft/client/renderer/RenderGlobal;setupTerrain(Lnet/minecraft/entity/Entity;DLnet/minecraft/client/renderer/culling/ICamera;IZ)V",
+            at = @At(value = "INVOKE",
+                    target = "Lnet/minecraft/profiler/Profiler;endStartSection(Ljava/lang/String;)V",
+                    shift = At.Shift.BEFORE,
+                    ordinal = 0),
+            slice = @Slice(from = @At(
+                    value = "CONSTANT:ONE",
+                    args = "stringValue=captureFrustum")),
+            allow = 1, require = 1)
+    private void fp2_setupTerrain_prepareRenderer(Entity viewEntity, double partialTicks, ICamera camera, int frameCount, boolean playerSpectator, CallbackInfo ci) {
         IFarClientContext<?, ?> context = ((IFarPlayerClient) this.mc.getConnection()).fp2_IFarPlayerClient_activeContext();
         IFarRenderer renderer;
         if (context != null && (renderer = context.renderer()) != null) {
-            this.vanillaRenderabilityTracker.update(uncheckedCast(this));
-
             this.mc.profiler.startSection("fp2_prepare");
             renderer.prepare((float) partialTicks, this.mc, (IFrustum) camera);
             this.mc.profiler.endSection();

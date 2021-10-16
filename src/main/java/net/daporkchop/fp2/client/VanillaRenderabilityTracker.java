@@ -22,6 +22,7 @@ package net.daporkchop.fp2.client;
 
 import lombok.NonNull;
 import lombok.RequiredArgsConstructor;
+import net.daporkchop.fp2.client.gl.camera.IFrustum;
 import net.daporkchop.fp2.client.gl.object.GLBuffer;
 import net.daporkchop.fp2.util.Constants;
 import net.daporkchop.fp2.util.alloc.Allocator;
@@ -32,10 +33,14 @@ import net.daporkchop.lib.unsafe.util.exception.AlreadyReleasedException;
 import net.minecraft.client.renderer.RenderGlobal;
 import net.minecraft.client.renderer.ViewFrustum;
 import net.minecraft.client.renderer.chunk.CompiledChunk;
+import net.minecraft.client.renderer.chunk.RenderChunk;
+import net.minecraft.entity.Entity;
 import net.minecraft.util.EnumFacing;
 import net.minecraft.util.math.BlockPos;
+import net.minecraft.util.math.MathHelper;
 
-import java.util.stream.Stream;
+import java.util.ArrayDeque;
+import java.util.Queue;
 
 import static net.daporkchop.fp2.client.gl.OpenGL.*;
 import static net.daporkchop.lib.common.math.PMath.*;
@@ -54,7 +59,16 @@ public class VanillaRenderabilityTracker extends AbstractRefCounted {
 
     protected static int visibilityMask(@NonNull CompiledChunk compiledChunk) {
         int mask = 0;
-        for (EnumFacing facing : EnumFacing.VALUES) {
+        for (EnumFacing facing0 : EnumFacing.values()) {
+            boolean b = compiledChunk.isVisible(facing0, facing0);
+            for (EnumFacing facing1 : EnumFacing.values()) {
+                if (compiledChunk.isVisible(facing0, facing1) != b) {
+                    int i = 0;
+                }
+            }
+        }
+
+        for (EnumFacing facing : EnumFacing.values()) {
             if (compiledChunk.isVisible(facing, facing)) {
                 mask |= 1 << facing.ordinal();
             }
@@ -95,7 +109,7 @@ public class VanillaRenderabilityTracker extends AbstractRefCounted {
     /**
      * Updates this tracker instance based on the state of the given {@link RenderGlobal}.
      */
-    public void update(@NonNull RenderGlobal renderGlobal) {
+    public void update(@NonNull RenderGlobal renderGlobal, @NonNull IFrustum frustum, int frameCount) {
         //figure out the maximum extents of all of the renderChunks in the current ViewFrustum
         ViewFrustum viewFrustum = renderGlobal.viewFrustum;
         boolean cubic = Constants.isCubicWorld(viewFrustum.world);
@@ -133,23 +147,36 @@ public class VanillaRenderabilityTracker extends AbstractRefCounted {
         int factorChunkY = maxChunkY - minChunkY + 3;
         int factorChunkZ = maxChunkZ - minChunkZ + 3;
 
+        final int FLAG_FRAMEINDEX = 1 << 8;
+        final int FLAG_ISDUMMY = 1 << 7;
+        final int FLAG_INFRUSTUM = 1 << 6;
+
         //iterate over all the RenderChunks which have been compiled, setting bits indicating whether or not they exist and which edges' neighboring
         //  chunk sections are visible
-        byte[] srcBits = new byte[factorChunkX * factorChunkY * factorChunkZ];
-        Stream.of(viewFrustum.renderChunks).forEach(renderChunk -> {
+        char[] srcBits = new char[factorChunkX * factorChunkY * factorChunkZ];
+
+        for (RenderChunk renderChunk : viewFrustum.renderChunks) {
             CompiledChunk compiledChunk = renderChunk.getCompiledChunk();
-            if (compiledChunk == CompiledChunk.DUMMY) {
-                return;
-            }
 
             BlockPos pos = renderChunk.getPosition();
             int chunkX = pos.getX() >> 4;
             int chunkY = pos.getY() >> 4;
             int chunkZ = pos.getZ() >> 4;
 
-            byte flags = (byte) (0x80 | visibilityMask(compiledChunk));
-            srcBits[((chunkX + offsetChunkX) * factorChunkY + (chunkY + offsetChunkY)) * factorChunkZ + (chunkZ + offsetChunkZ)] = flags;
-        });
+            int flags = visibilityMask(compiledChunk);
+
+            if (renderChunk.frameIndex == frameCount) {
+                flags |= FLAG_FRAMEINDEX;
+            }
+            if (renderChunk.compiledChunk == CompiledChunk.DUMMY) {
+                flags |= FLAG_ISDUMMY;
+            }
+            if (frustum.intersectsBB(renderChunk.boundingBox)) {
+                flags |= FLAG_INFRUSTUM;
+            }
+
+            srcBits[((chunkX + offsetChunkX) * factorChunkY + (chunkY + offsetChunkY)) * factorChunkZ + (chunkZ + offsetChunkZ)] = (char) flags;
+        }
 
         //iterate over the whole grid again, setting the flag to indicate fp2 rendering is blocked by the RenderChunk at the given position if
         //  the following applies:
@@ -162,6 +189,7 @@ public class VanillaRenderabilityTracker extends AbstractRefCounted {
         int offset3 = (EnumFacing.SOUTH.getXOffset() * factorChunkY + EnumFacing.SOUTH.getYOffset()) * factorChunkZ + EnumFacing.SOUTH.getZOffset();
         int offset4 = (EnumFacing.WEST.getXOffset() * factorChunkY + EnumFacing.WEST.getYOffset()) * factorChunkZ + EnumFacing.WEST.getZOffset();
         int offset5 = (EnumFacing.EAST.getXOffset() * factorChunkY + EnumFacing.EAST.getYOffset()) * factorChunkZ + EnumFacing.EAST.getZOffset();
+        int[] offsets = { offset0, offset1, offset2, offset3, offset4, offset5 };
 
         long sizeBits = factorChunkX * factorChunkY * factorChunkZ;
         long sizeBytes = FLAGS_OFFSET + (PMath.roundUp(sizeBits, 32) >> 2);
@@ -173,18 +201,30 @@ public class VanillaRenderabilityTracker extends AbstractRefCounted {
             for (int y = 1; y < factorChunkY - 2; y++) {
                 for (int z = 1; z < factorChunkZ - 2; z++) {
                     int idx = (x * factorChunkY + y) * factorChunkZ + z;
-                    int centerFlags = srcBits[idx] & 0xFF;
+                    int centerFlags = srcBits[idx];
+
+                    long wordAddr = addr + FLAGS_OFFSET + (idx >> 5 << 2);
+
+                    IF:
+                    if ((centerFlags & (FLAG_FRAMEINDEX | FLAG_ISDUMMY)) == (FLAG_FRAMEINDEX)) {
+                        for (int i = 0; i < offsets.length; i++) {
+                            if ((centerFlags & (1 << i)) != 0
+                                && (srcBits[idx + offsets[i]] & (FLAG_FRAMEINDEX | FLAG_ISDUMMY | FLAG_INFRUSTUM)) == (FLAG_FRAMEINDEX | FLAG_ISDUMMY | FLAG_INFRUSTUM)) {
+                                break IF;
+                            }
+                        }
+                        PUnsafe.putInt(wordAddr, PUnsafe.getInt(wordAddr) | (1 << idx));
+                    }
 
                     //look ma, no branches!
-                    long wordAddr = addr + FLAGS_OFFSET + (idx >> 5 << 2);
-                    PUnsafe.putInt(wordAddr, PUnsafe.getInt(wordAddr)
+                    /*PUnsafe.putInt(wordAddr, PUnsafe.getInt(wordAddr)
                                              | (((centerFlags >> 7)
                                                  & (((~centerFlags >> 0) & 1) | (srcBits[idx + offset0] >> 7))
                                                  & (((~centerFlags >> 1) & 1) | (srcBits[idx + offset1] >> 7))
                                                  & (((~centerFlags >> 2) & 1) | (srcBits[idx + offset2] >> 7))
                                                  & (((~centerFlags >> 3) & 1) | (srcBits[idx + offset3] >> 7))
                                                  & (((~centerFlags >> 4) & 1) | (srcBits[idx + offset4] >> 7))
-                                                 & (((~centerFlags >> 5) & 1) | (srcBits[idx + offset5] >> 7))) << idx));
+                                                 & (((~centerFlags >> 5) & 1) | (srcBits[idx + offset5] >> 7))) << idx));*/
 
                     //equivalent code:
                     /*flags[idx] = (centerFlags & 0x80) != 0
@@ -200,7 +240,7 @@ public class VanillaRenderabilityTracker extends AbstractRefCounted {
                     if ((centerFlags & 0x80) != 0) {
                         for (int i = 0; i < offsets.length; i++) {
                             if ((centerFlags & (1 << i)) != 0 && (srcBits[idx + offsets[i]] & 0x80) == 0) {
-                                break GOTO;
+                                break IF;
                             }
                         }
                         flags[idx] = true;
