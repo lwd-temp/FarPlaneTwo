@@ -39,9 +39,7 @@ import net.minecraft.util.EnumFacing;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.MathHelper;
 
-import java.util.ArrayDeque;
-import java.util.Queue;
-
+import static java.lang.Math.*;
 import static net.daporkchop.fp2.client.gl.OpenGL.*;
 import static net.daporkchop.lib.common.math.PMath.*;
 import static org.lwjgl.opengl.GL15.*;
@@ -124,6 +122,18 @@ public class VanillaRenderabilityTracker extends AbstractRefCounted {
         int renderPosX = floorI(renderGlobal.frustumUpdatePosX) - 8;
         int renderPosY = floorI(renderGlobal.frustumUpdatePosY) - 8;
         int renderPosZ = floorI(renderGlobal.frustumUpdatePosZ) - 8;
+        
+        int playerPosX;
+        int playerPosY;
+        int playerPosZ;
+        
+        {
+            Entity viewEntity = renderGlobal.mc.renderViewEntity;
+            double partialTicks = renderGlobal.mc.getRenderPartialTicks();
+            playerPosX = floorI((viewEntity.lastTickPosX + (viewEntity.posX - viewEntity.lastTickPosX) * partialTicks) / 16.0d) << 4;
+            playerPosY = floorI((viewEntity.lastTickPosY + (viewEntity.posY - viewEntity.lastTickPosY) * partialTicks) / 16.0d) << 4;
+            playerPosZ = floorI((viewEntity.lastTickPosZ + (viewEntity.posZ - viewEntity.lastTickPosZ) * partialTicks) / 16.0d) << 4;
+        }
 
         int minChunkX = (renderPosX >> 4) - radiusX;
         int maxChunkX = (renderPosX >> 4) + radiusX;
@@ -165,7 +175,8 @@ public class VanillaRenderabilityTracker extends AbstractRefCounted {
 
             int flags = visibilityMask(compiledChunk);
 
-            if (renderChunk.frameIndex == frameCount) {
+            if (renderChunk.frameIndex == frameCount
+                && max(abs(playerPosX - (chunkX << 4)), abs(playerPosZ - (chunkZ << 4))) < renderGlobal.renderDistanceChunks << 4) {
                 flags |= FLAG_FRAMEINDEX;
             }
             if (renderChunk.compiledChunk == CompiledChunk.DUMMY) {
